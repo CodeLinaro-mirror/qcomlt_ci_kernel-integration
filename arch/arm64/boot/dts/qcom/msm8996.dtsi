@@ -1131,9 +1131,9 @@
 			reg = <0xb40000 0x10000>;
 
 			#global-interrupts = <1>;
-			interrupts = <0 334 0>,
-				     <0 329 0>,
-				     <0 330 0>;
+			interrupts = <0 334 IRQ_TYPE_LEVEL_HIGH>,
+				     <0 329 IRQ_TYPE_LEVEL_HIGH>,
+				     <0 330 IRQ_TYPE_LEVEL_HIGH>;
 			#iommu-cells = <1>;
 
 			clocks = <&mmcc GPU_AHB_CLK>,
@@ -1152,7 +1152,7 @@
 			reg = <0xb00000 0x3f000>;
 			reg-names = "kgsl_3d0_reg_memory";
 
-			interrupts = <0 300 0>;
+			interrupts = <0 300 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "kgsl_3d0_irq";
 
 			clocks = <&mmcc GPU_GX_GFX3D_CLK>,
@@ -1342,7 +1342,8 @@
 			reg = <0x91c0000 0x2C000>,
 				<0x9184000 0x32000>;
 			reg-names = "slimbus_physical", "slimbus_bam_physical";
-			interrupts = <0 163 0>, <0 164 0>;
+			interrupts = <0 163 IRQ_TYPE_LEVEL_HIGH>,
+				     <0 164 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "slimbus_irq", "slimbus_bam_irq";
 			qcom,apps-ch-pipes = <0x60000000>;
 			qcom,ea-pc = <0x160>;
