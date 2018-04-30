@@ -218,6 +218,16 @@ config MSM_MMCC_8996
 	  Say Y if you want to support multimedia devices such as display,
 	  graphics, video encode/decode, camera, etc.
 
+config SDM_GCC_845
+	tristate "SDM845 Global Clock Controller"
+	depends on COMMON_CLK_QCOM
+	help
+	  Support for the global clock controller on Qualcomm Technologies, Inc
+	  sdm845 devices.
+	  Say Y if you want to use peripheral devices such as UART, SPI,
+	  i2c, USB, UFS, SD/eMMC, PCIe, etc.
+
+
 config SPMI_PMIC_CLKDIV
 	tristate "SPMI PMIC clkdiv Support"
 	depends on (COMMON_CLK_QCOM && SPMI) || COMPILE_TEST
@@ -227,6 +237,7 @@ config SPMI_PMIC_CLKDIV
 	  clkdiv outputs of the PMIC. These clocks are typically wired
 	  through alternate functions on GPIO pins.
 
+<<<<<<< HEAD
 config MSM_APCC_8996
 	tristate "MSM8996 CPU Clock Controller"
 	depends on COMMON_CLK_QCOM
@@ -234,3 +245,5 @@ config MSM_APCC_8996
 	  Support for the CPU clock controller on msm8996 devices.
 	  Say Y if you want to support CPU clock scaling using CPUfreq
 	  drivers for dyanmic power management.
+=======
+>>>>>>> sdm845-fabia/tracking/sdm845/list/clk-fabia-rcg
