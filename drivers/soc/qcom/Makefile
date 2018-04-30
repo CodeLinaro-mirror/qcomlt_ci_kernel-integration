@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0
+<<<<<<< HEAD
 obj-$(CONFIG_QCOM_GENI_SE) +=	qcom-geni-se.o
+=======
+obj-$(CONFIG_QCOM_COMMAND_DB) += cmd-db.o
+>>>>>>> sdm845-command-db/lkml/command-db-v7
 obj-$(CONFIG_QCOM_GLINK_SSR) +=	glink_ssr.o
 obj-$(CONFIG_QCOM_GSBI)	+=	qcom_gsbi.o
 obj-$(CONFIG_QCOM_MDT_LOADER)	+= mdt_loader.o
