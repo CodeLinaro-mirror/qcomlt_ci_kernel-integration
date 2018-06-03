@@ -20,6 +20,7 @@
 #include <linux/mmc/mmc.h>
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
+#include <linux/interconnect.h>
 #include <linux/iopoll.h>
 
 #include "sdhci-pltfm.h"
@@ -148,6 +149,7 @@ struct sdhci_msm_host {
 	u32 curr_io_level;
 	wait_queue_head_t pwr_irq_wait;
 	bool pwr_irq_flag;
+	struct icc_path *path;
 };
 
 static unsigned int msm_get_clock_rate_for_bus_mode(struct sdhci_host *host,
@@ -1313,6 +1315,28 @@ static void sdhci_msm_writeb(struct sdhci_host *host, u8 val, int reg)
 		sdhci_msm_check_power_status(host, req_type);
 }
 
+static int sdhci_msm_set_icc(struct sdhci_msm_host *msm_host, unsigned int rate)
+{
+
+	if (IS_ERR(msm_host->path)) {
+		WARN_ON(1);
+		return 0;
+	}
+
+	if (rate == INT_MAX)
+		icc_set(msm_host->path, 2048000, 4096000);
+	else
+		icc_set(msm_host->path, 0, 0);
+
+	return 0;
+}
+
+static void sdhci_msm_deinit_icc(struct sdhci_msm_host *msm_host)
+{
+	if (!IS_ERR(msm_host->path))
+		icc_put(msm_host->path);
+}
+
 static const struct of_device_id sdhci_msm_dt_match[] = {
 	{ .compatible = "qcom,sdhci-msm-v4" },
 	{},
@@ -1419,6 +1443,13 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 				      msm_host->bulk_clks);
 	if (ret)
 		goto bus_clk_disable;
+
+	msm_host->path = of_icc_get(&pdev->dev, "ddr");
+	if (IS_ERR(msm_host->path)) {
+		ret = PTR_ERR(msm_host->path);
+		goto clk_disable;
+	}
+	sdhci_msm_set_icc(msm_host, INT_MAX);
 
 	/*
 	 * xo clock is needed for FLL feature of cm_dll.
@@ -1567,6 +1598,8 @@ static int sdhci_msm_remove(struct platform_device *pdev)
 
 	clk_bulk_disable_unprepare(ARRAY_SIZE(msm_host->bulk_clks),
 				   msm_host->bulk_clks);
+	sdhci_msm_deinit_icc(msm_host);
+
 	if (!IS_ERR(msm_host->bus_clk))
 		clk_disable_unprepare(msm_host->bus_clk);
 	sdhci_pltfm_free(pdev);
