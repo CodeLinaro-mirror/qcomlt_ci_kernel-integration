@@ -322,6 +322,11 @@
 				reg = <0x17d10000 0x1000>;
 				status = "disabled";
 			};
+
+			qnoc: qnoc{
+				compatible = "qcom,sdm845-rsc-hlos";
+				#interconnect-cells = <1>;
+			};
 		};
 	};
 };
