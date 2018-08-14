@@ -45,6 +45,82 @@ enum _msm8996_version {
 
 static struct platform_device *cpufreq_dt_pdev, *cpufreq_pdev;
 
+static void __init get_krait_bin_format_a(int *speed, int *pvs, int *pvs_ver,
+					  struct nvmem_cell *pvs_nvmem, u8 *buf)
+{
+	u32 pte_efuse;
+
+	pte_efuse = *((u32 *)buf);
+
+	*speed = pte_efuse & 0xf;
+	if (*speed == 0xf)
+		*speed = (pte_efuse >> 4) & 0xf;
+
+	if (*speed == 0xf) {
+		*speed = 0;
+		pr_warn("Speed bin: Defaulting to %d\n", *speed);
+	} else {
+		pr_info("Speed bin: %d\n", *speed);
+	}
+
+	*pvs = (pte_efuse >> 10) & 0x7;
+	if (*pvs == 0x7)
+		*pvs = (pte_efuse >> 13) & 0x7;
+
+	if (*pvs == 0x7) {
+		*pvs = 0;
+		pr_warn("PVS bin: Defaulting to %d\n", *pvs);
+	} else {
+		pr_info("PVS bin: %d\n", *pvs);
+	}
+
+	kfree(buf);
+}
+
+static void __init get_krait_bin_format_b(int *speed, int *pvs, int *pvs_ver,
+					  struct nvmem_cell *pvs_nvmem, u8 *buf)
+{
+	u32 pte_efuse, redundant_sel;
+
+	pte_efuse = *((u32 *)buf);
+	redundant_sel = (pte_efuse >> 24) & 0x7;
+	*speed = pte_efuse & 0x7;
+
+	/* 4 bits of PVS are in efuse register bits 31, 8-6. */
+	*pvs = ((pte_efuse >> 28) & 0x8) | ((pte_efuse >> 6) & 0x7);
+	*pvs_ver = (pte_efuse >> 4) & 0x3;
+
+	switch (redundant_sel) {
+	case 1:
+		*speed = (pte_efuse >> 27) & 0xf;
+		break;
+	case 2:
+		*pvs = (pte_efuse >> 27) & 0xf;
+		break;
+	}
+
+	/* Check SPEED_BIN_BLOW_STATUS */
+	if (pte_efuse & BIT(3)) {
+		pr_info("Speed bin: %d\n", *speed);
+	} else {
+		pr_warn("Speed bin not set. Defaulting to 0!\n");
+		*speed = 0;
+	}
+
+	/* Check PVS_BLOW_STATUS */
+	pte_efuse = *(((u32 *)buf) + 4);
+	pte_efuse &= BIT(21);
+	if (pte_efuse) {
+		pr_info("PVS bin: %d\n", *pvs);
+	} else {
+		pr_warn("PVS bin not set. Defaulting to 0!\n");
+		*pvs = 0;
+	}
+
+	pr_info("PVS version: %d\n", *pvs_ver);
+	kfree(buf);
+}
+
 static enum _msm8996_version qcom_cpufreq_get_msm_id(void)
 {
 	size_t len;
@@ -74,6 +150,35 @@ static enum _msm8996_version qcom_cpufreq_get_msm_id(void)
 	return version;
 }
 
+static int qcom_cpufreq_krait_name_version(struct device *cpu_dev,
+					   struct nvmem_cell *speedbin_nvmem,
+					   char **name,
+					   u32 *versions)
+{
+	int speed = 0, pvs = 0, pvs_ver = 0;
+	u8 *buf;
+	size_t len;
+
+	buf = nvmem_cell_read(speedbin_nvmem, &len);
+	if (len == 4) {
+		get_krait_bin_format_a(&speed, &pvs, &pvs_ver,
+				       speedbin_nvmem, buf);
+	} else if (len == 8) {
+		get_krait_bin_format_b(&speed, &pvs, &pvs_ver,
+				       speedbin_nvmem, buf);
+	} else {
+		dev_err(cpu_dev, "Unable to read nvmem data. Defaulting to 0!\n");
+		return -ENODEV;
+	}
+
+	snprintf(*name, sizeof("speedXX-pvsXX-vXX"), "speed%d-pvs%d-v%d",
+		 speed, pvs, pvs_ver);
+
+	*versions = (1 << speed);
+
+	return 0;
+}
+
 static int qcom_cpufreq_kryo_name_version(struct device *cpu_dev,
 					  struct nvmem_cell *speedbin_nvmem,
 					  char **pvs_name,
@@ -83,6 +188,7 @@ static int qcom_cpufreq_kryo_name_version(struct device *cpu_dev,
 	u8 *speedbin;
 	enum _msm8996_version msm8996_version;
 
+	*pvs_name = NULL;
 	msm8996_version = qcom_cpufreq_get_msm_id();
 	if (NUM_OF_MSM8996_VERSIONS == msm8996_version) {
 		dev_err(cpu_dev, "Not Snapdragon 820/821!");
@@ -111,7 +217,7 @@ static int qcom_cpufreq_kryo_name_version(struct device *cpu_dev,
 
 static int qcom_cpufreq_probe(struct platform_device *pdev)
 {
-	struct opp_table *opp_tables[NR_CPUS] = { NULL };
+	struct opp_table *tbl1[NR_CPUS] = { NULL }, *tbl2[NR_CPUS] = { NULL };
 	int (*get_version)(struct device *cpu_dev,
 			   struct nvmem_cell *speedbin_nvmem,
 			   char **name, int *versions);
@@ -120,8 +226,8 @@ static int qcom_cpufreq_probe(struct platform_device *pdev)
 	struct device *cpu_dev;
 	unsigned cpu;
 	u32 versions;
-	char *pvs_name = NULL;
 	const struct of_device_id *match;
+	char *pvs_name = "speedXX-pvsXX-vXX";
 	int ret;
 
 	cpu_dev = get_cpu_device(0);
@@ -164,10 +270,19 @@ static int qcom_cpufreq_probe(struct platform_device *pdev)
 			goto free_opp;
 		}
 
-		opp_tables[cpu] = dev_pm_opp_set_supported_hw(cpu_dev,
-							      &versions, 1);
-		if (IS_ERR(opp_tables[cpu])) {
-			ret = PTR_ERR(opp_tables[cpu]);
+		if (pvs_name) {
+			tbl1[cpu] = dev_pm_opp_set_prop_name(cpu_dev, pvs_name);
+			if (IS_ERR(tbl1[cpu])) {
+				ret = PTR_ERR(tbl1[cpu]);
+				dev_err(cpu_dev, "Failed to add OPP name %s\n",
+					pvs_name);
+				goto free_opp;
+			}
+		}
+
+		tbl2[cpu] = dev_pm_opp_set_supported_hw(cpu_dev, &versions, 1);
+		if (IS_ERR(tbl2[cpu])) {
+			ret = PTR_ERR(tbl2[cpu]);
 			dev_err(cpu_dev, "Failed to set supported hardware\n");
 			goto free_opp;
 		}
@@ -183,9 +298,15 @@ static int qcom_cpufreq_probe(struct platform_device *pdev)
 
 free_opp:
 	for_each_possible_cpu(cpu) {
-		if (IS_ERR_OR_NULL(opp_tables[cpu]))
+		if (IS_ERR_OR_NULL(tbl1[cpu]))
 			break;
-		dev_pm_opp_put_supported_hw(opp_tables[cpu]);
+		dev_pm_opp_put_prop_name(tbl1[cpu]);
+	}
+
+	for_each_possible_cpu(cpu) {
+		if (IS_ERR_OR_NULL(tbl2[cpu]))
+			break;
+		dev_pm_opp_put_supported_hw(tbl2[cpu]);
 	}
 
 	return ret;
@@ -206,8 +327,18 @@ static struct platform_driver qcom_cpufreq_driver = {
 };
 
 static const struct of_device_id qcom_cpufreq_match_list[] __initconst = {
-	{ .compatible = "qcom,apq8096", .data = qcom_cpufreq_kryo_name_version},
-	{ .compatible = "qcom,msm8996", .data = qcom_cpufreq_kryo_name_version},
+	{ .compatible = "qcom,apq8096",
+	  .data = qcom_cpufreq_kryo_name_version},
+	{ .compatible = "qcom,msm8996",
+	  .data = qcom_cpufreq_kryo_name_version},
+	{ .compatible = "qcom,ipq8064",
+	  .data = qcom_cpufreq_krait_name_version },
+	{ .compatible = "qcom,apq8064",
+	  .data = qcom_cpufreq_krait_name_version },
+	{ .compatible = "qcom,msm8974",
+	  .data = qcom_cpufreq_krait_name_version },
+	{ .compatible = "qcom,msm8960",
+	  .data = qcom_cpufreq_krait_name_version },
 	{},
 };
 
