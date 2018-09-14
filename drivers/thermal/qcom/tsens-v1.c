@@ -69,7 +69,7 @@
 static int calibrate_v1(struct tsens_device *tmdev)
 {
 	u32 base0 = 0, base1 = 0;
-	u32 p1[10], p2[10];
+	u32 p1[tmdev->num_sensors], p2[tmdev->num_sensors];
 	u32 mode = 0, lsb = 0, msb = 0;
 	u32 *qfprom_cdata;
 	int i;
@@ -178,8 +178,8 @@ static int get_temp_tsens_v1(struct tsens_device *tmdev, int id, int *temp)
 	else if (last_temp2 == last_temp3)
 		last_temp = last_temp3;
 done:
-	/* Convert temperature from ADC code to milliCelsius */
-	*temp = code_to_degc(last_temp, s) * 1000;
+	/* Convert temperature from deciCelsius to milliCelsius */
+	*temp = sign_extend32(last_temp, fls(LAST_TEMP_MASK) - 1) * 100;
 
 	return 0;
 }
