@@ -7,7 +7,6 @@
 #include <linux/platform_device.h>
 #include <linux/module.h>
 #include <linux/of.h>
-#include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/regmap.h>
 #include <linux/reset-controller.h>
@@ -52,7 +51,7 @@ static const char * const gcc_parent_names_0[] = {
 };
 
 static const char * const gcc_parent_names_ao_0[] = {
-	"cxo_a",
+	"cxo",
 	"gpll0_ao_out_main",
 	"core_bi_pll_test_se",
 };
@@ -261,6 +260,17 @@ static const char * const gcc_parent_names_15[] = {
 	"core_bi_pll_test_se",
 };
 
+static struct clk_fixed_factor cxo = {
+	.mult = 1,
+	.div = 1,
+	.hw.init = &(struct clk_init_data){
+		.name = "cxo",
+		.parent_names = (const char *[]){ "xo_board" },
+		.num_parents = 1,
+		.ops = &clk_fixed_factor_ops,
+	},
+};
+
 static struct clk_alpha_pll gpll0_sleep_clk_src = {
 	.offset = 0x21000,
 	.regs = clk_alpha_pll_regs[CLK_ALPHA_PLL_TYPE_DEFAULT],
@@ -303,8 +313,9 @@ static struct clk_alpha_pll gpll0_ao_out_main = {
 		.enable_mask = BIT(0),
 		.hw.init = &(struct clk_init_data){
 			.name = "gpll0_ao_out_main",
-			.parent_names = (const char *[]){ "cxo_a" },
+			.parent_names = (const char *[]){ "cxo" },
 			.num_parents = 1,
+			.flags = CLK_IS_CRITICAL,
 			.ops = &clk_alpha_pll_ops,
 		},
 	},
@@ -337,7 +348,7 @@ static const struct alpha_pll_config gpll3_config = {
 	.config_ctl_val = 0x4001055b,
 };
 
-static struct pll_vco gpll3_vco[] = {
+static const struct pll_vco gpll3_vco[] = {
 	{ 700000000, 1400000000, 0 },
 };
 
@@ -416,6 +427,7 @@ static struct clk_rcg2 apss_ahb_clk_src = {
 		.name = "apss_ahb_clk_src",
 		.parent_names = gcc_parent_names_ao_0,
 		.num_parents = 3,
+		.flags = CLK_IS_CRITICAL,
 		.ops = &clk_rcg2_ops,
 	},
 };
@@ -727,7 +739,7 @@ static struct clk_rcg2 byte0_clk_src = {
 		.name = "byte0_clk_src",
 		.parent_names = gcc_parent_names_5,
 		.num_parents = 4,
-		.flags = CLK_SET_RATE_PARENT | CLK_GET_RATE_NOCACHE,
+		.flags = CLK_SET_RATE_PARENT,
 		.ops = &clk_byte2_ops,
 	},
 };
@@ -981,7 +993,7 @@ static struct clk_rcg2 pclk0_clk_src = {
 		.name = "pclk0_clk_src",
 		.parent_names = gcc_parent_names_12,
 		.num_parents = 4,
-		.flags = CLK_SET_RATE_PARENT | CLK_GET_RATE_NOCACHE,
+		.flags = CLK_SET_RATE_PARENT,
 		.ops = &clk_pixel_ops,
 	},
 };
@@ -2189,6 +2201,7 @@ static struct clk_branch gcc_prng_ahb_clk = {
 	},
 };
 
+/* PWM clks do not have XO as parent as src clk is a balance root */
 static struct clk_branch gcc_pwm0_xo512_clk = {
 	.halt_reg = 0x44018,
 	.halt_check = BRANCH_HALT,
@@ -2505,29 +2518,33 @@ static struct clk_branch gcc_usb_hs_system_clk = {
 	},
 };
 
+static struct clk_hw *gcc_qcs404_hws[] = {
+	&cxo.hw,
+};
+
 static struct clk_regmap *gcc_qcs404_clocks[] = {
-	[APSS_AHB_CLK_SRC] = &apss_ahb_clk_src.clkr,
-	[BLSP1_QUP0_I2C_APPS_CLK_SRC] = &blsp1_qup0_i2c_apps_clk_src.clkr,
-	[BLSP1_QUP0_SPI_APPS_CLK_SRC] = &blsp1_qup0_spi_apps_clk_src.clkr,
-	[BLSP1_QUP1_I2C_APPS_CLK_SRC] = &blsp1_qup1_i2c_apps_clk_src.clkr,
-	[BLSP1_QUP1_SPI_APPS_CLK_SRC] = &blsp1_qup1_spi_apps_clk_src.clkr,
-	[BLSP1_QUP2_I2C_APPS_CLK_SRC] = &blsp1_qup2_i2c_apps_clk_src.clkr,
-	[BLSP1_QUP2_SPI_APPS_CLK_SRC] = &blsp1_qup2_spi_apps_clk_src.clkr,
-	[BLSP1_QUP3_I2C_APPS_CLK_SRC] = &blsp1_qup3_i2c_apps_clk_src.clkr,
-	[BLSP1_QUP3_SPI_APPS_CLK_SRC] = &blsp1_qup3_spi_apps_clk_src.clkr,
-	[BLSP1_QUP4_I2C_APPS_CLK_SRC] = &blsp1_qup4_i2c_apps_clk_src.clkr,
-	[BLSP1_QUP4_SPI_APPS_CLK_SRC] = &blsp1_qup4_spi_apps_clk_src.clkr,
-	[BLSP1_UART0_APPS_CLK_SRC] = &blsp1_uart0_apps_clk_src.clkr,
-	[BLSP1_UART1_APPS_CLK_SRC] = &blsp1_uart1_apps_clk_src.clkr,
-	[BLSP1_UART2_APPS_CLK_SRC] = &blsp1_uart2_apps_clk_src.clkr,
-	[BLSP1_UART3_APPS_CLK_SRC] = &blsp1_uart3_apps_clk_src.clkr,
-	[BLSP2_QUP0_I2C_APPS_CLK_SRC] = &blsp2_qup0_i2c_apps_clk_src.clkr,
-	[BLSP2_QUP0_SPI_APPS_CLK_SRC] = &blsp2_qup0_spi_apps_clk_src.clkr,
-	[BLSP2_UART0_APPS_CLK_SRC] = &blsp2_uart0_apps_clk_src.clkr,
-	[BYTE0_CLK_SRC] = &byte0_clk_src.clkr,
-	[EMAC_CLK_SRC] = &emac_clk_src.clkr,
-	[EMAC_PTP_CLK_SRC] = &emac_ptp_clk_src.clkr,
-	[ESC0_CLK_SRC] = &esc0_clk_src.clkr,
+	[GCC_APSS_AHB_CLK_SRC] = &apss_ahb_clk_src.clkr,
+	[GCC_BLSP1_QUP0_I2C_APPS_CLK_SRC] = &blsp1_qup0_i2c_apps_clk_src.clkr,
+	[GCC_BLSP1_QUP0_SPI_APPS_CLK_SRC] = &blsp1_qup0_spi_apps_clk_src.clkr,
+	[GCC_BLSP1_QUP1_I2C_APPS_CLK_SRC] = &blsp1_qup1_i2c_apps_clk_src.clkr,
+	[GCC_BLSP1_QUP1_SPI_APPS_CLK_SRC] = &blsp1_qup1_spi_apps_clk_src.clkr,
+	[GCC_BLSP1_QUP2_I2C_APPS_CLK_SRC] = &blsp1_qup2_i2c_apps_clk_src.clkr,
+	[GCC_BLSP1_QUP2_SPI_APPS_CLK_SRC] = &blsp1_qup2_spi_apps_clk_src.clkr,
+	[GCC_BLSP1_QUP3_I2C_APPS_CLK_SRC] = &blsp1_qup3_i2c_apps_clk_src.clkr,
+	[GCC_BLSP1_QUP3_SPI_APPS_CLK_SRC] = &blsp1_qup3_spi_apps_clk_src.clkr,
+	[GCC_BLSP1_QUP4_I2C_APPS_CLK_SRC] = &blsp1_qup4_i2c_apps_clk_src.clkr,
+	[GCC_BLSP1_QUP4_SPI_APPS_CLK_SRC] = &blsp1_qup4_spi_apps_clk_src.clkr,
+	[GCC_BLSP1_UART0_APPS_CLK_SRC] = &blsp1_uart0_apps_clk_src.clkr,
+	[GCC_BLSP1_UART1_APPS_CLK_SRC] = &blsp1_uart1_apps_clk_src.clkr,
+	[GCC_BLSP1_UART2_APPS_CLK_SRC] = &blsp1_uart2_apps_clk_src.clkr,
+	[GCC_BLSP1_UART3_APPS_CLK_SRC] = &blsp1_uart3_apps_clk_src.clkr,
+	[GCC_BLSP2_QUP0_I2C_APPS_CLK_SRC] = &blsp2_qup0_i2c_apps_clk_src.clkr,
+	[GCC_BLSP2_QUP0_SPI_APPS_CLK_SRC] = &blsp2_qup0_spi_apps_clk_src.clkr,
+	[GCC_BLSP2_UART0_APPS_CLK_SRC] = &blsp2_uart0_apps_clk_src.clkr,
+	[GCC_BYTE0_CLK_SRC] = &byte0_clk_src.clkr,
+	[GCC_EMAC_CLK_SRC] = &emac_clk_src.clkr,
+	[GCC_EMAC_PTP_CLK_SRC] = &emac_ptp_clk_src.clkr,
+	[GCC_ESC0_CLK_SRC] = &esc0_clk_src.clkr,
 	[GCC_APSS_AHB_CLK] = &gcc_apss_ahb_clk.clkr,
 	[GCC_BIMC_GFX_CLK] = &gcc_bimc_gfx_clk.clkr,
 	[GCC_BIMC_MDSS_CLK] = &gcc_bimc_mdss_clk.clkr,
@@ -2599,34 +2616,34 @@ static struct clk_regmap *gcc_qcs404_clocks[] = {
 	[GCC_USB3_PHY_PIPE_CLK] = &gcc_usb3_phy_pipe_clk.clkr,
 	[GCC_USB_HS_PHY_CFG_AHB_CLK] = &gcc_usb_hs_phy_cfg_ahb_clk.clkr,
 	[GCC_USB_HS_SYSTEM_CLK] = &gcc_usb_hs_system_clk.clkr,
-	[GFX3D_CLK_SRC] = &gfx3d_clk_src.clkr,
-	[GP1_CLK_SRC] = &gp1_clk_src.clkr,
-	[GP2_CLK_SRC] = &gp2_clk_src.clkr,
-	[GP3_CLK_SRC] = &gp3_clk_src.clkr,
-	[GPLL0_OUT_MAIN] = &gpll0_out_main.clkr,
-	[GPLL0_AO_OUT_MAIN] = &gpll0_ao_out_main.clkr,
-	[GPLL0_SLEEP_CLK_SRC] = &gpll0_sleep_clk_src.clkr,
-	[GPLL1_OUT_MAIN] = &gpll1_out_main.clkr,
-	[GPLL3_OUT_MAIN] = &gpll3_out_main.clkr,
-	[GPLL4_OUT_MAIN] = &gpll4_out_main.clkr,
-	[GPLL6] = &gpll6.clkr,
-	[GPLL6_OUT_AUX] = &gpll6_out_aux,
-	[HDMI_APP_CLK_SRC] = &hdmi_app_clk_src.clkr,
-	[HDMI_PCLK_CLK_SRC] = &hdmi_pclk_clk_src.clkr,
-	[MDP_CLK_SRC] = &mdp_clk_src.clkr,
-	[PCIE_0_AUX_CLK_SRC] = &pcie_0_aux_clk_src.clkr,
-	[PCIE_0_PIPE_CLK_SRC] = &pcie_0_pipe_clk_src.clkr,
-	[PCLK0_CLK_SRC] = &pclk0_clk_src.clkr,
-	[PDM2_CLK_SRC] = &pdm2_clk_src.clkr,
-	[SDCC1_APPS_CLK_SRC] = &sdcc1_apps_clk_src.clkr,
-	[SDCC1_ICE_CORE_CLK_SRC] = &sdcc1_ice_core_clk_src.clkr,
-	[SDCC2_APPS_CLK_SRC] = &sdcc2_apps_clk_src.clkr,
-	[USB20_MOCK_UTMI_CLK_SRC] = &usb20_mock_utmi_clk_src.clkr,
-	[USB30_MASTER_CLK_SRC] = &usb30_master_clk_src.clkr,
-	[USB30_MOCK_UTMI_CLK_SRC] = &usb30_mock_utmi_clk_src.clkr,
-	[USB3_PHY_AUX_CLK_SRC] = &usb3_phy_aux_clk_src.clkr,
-	[USB_HS_SYSTEM_CLK_SRC] = &usb_hs_system_clk_src.clkr,
-	[VSYNC_CLK_SRC] = &vsync_clk_src.clkr,
+	[GCC_GFX3D_CLK_SRC] = &gfx3d_clk_src.clkr,
+	[GCC_GP1_CLK_SRC] = &gp1_clk_src.clkr,
+	[GCC_GP2_CLK_SRC] = &gp2_clk_src.clkr,
+	[GCC_GP3_CLK_SRC] = &gp3_clk_src.clkr,
+	[GCC_GPLL0_OUT_MAIN] = &gpll0_out_main.clkr,
+	[GCC_GPLL0_AO_OUT_MAIN] = &gpll0_ao_out_main.clkr,
+	[GCC_GPLL0_SLEEP_CLK_SRC] = &gpll0_sleep_clk_src.clkr,
+	[GCC_GPLL1_OUT_MAIN] = &gpll1_out_main.clkr,
+	[GCC_GPLL3_OUT_MAIN] = &gpll3_out_main.clkr,
+	[GCC_GPLL4_OUT_MAIN] = &gpll4_out_main.clkr,
+	[GCC_GPLL6] = &gpll6.clkr,
+	[GCC_GPLL6_OUT_AUX] = &gpll6_out_aux,
+	[GCC_HDMI_APP_CLK_SRC] = &hdmi_app_clk_src.clkr,
+	[GCC_HDMI_PCLK_CLK_SRC] = &hdmi_pclk_clk_src.clkr,
+	[GCC_MDP_CLK_SRC] = &mdp_clk_src.clkr,
+	[GCC_PCIE_0_AUX_CLK_SRC] = &pcie_0_aux_clk_src.clkr,
+	[GCC_PCIE_0_PIPE_CLK_SRC] = &pcie_0_pipe_clk_src.clkr,
+	[GCC_PCLK0_CLK_SRC] = &pclk0_clk_src.clkr,
+	[GCC_PDM2_CLK_SRC] = &pdm2_clk_src.clkr,
+	[GCC_SDCC1_APPS_CLK_SRC] = &sdcc1_apps_clk_src.clkr,
+	[GCC_SDCC1_ICE_CORE_CLK_SRC] = &sdcc1_ice_core_clk_src.clkr,
+	[GCC_SDCC2_APPS_CLK_SRC] = &sdcc2_apps_clk_src.clkr,
+	[GCC_USB20_MOCK_UTMI_CLK_SRC] = &usb20_mock_utmi_clk_src.clkr,
+	[GCC_USB30_MASTER_CLK_SRC] = &usb30_master_clk_src.clkr,
+	[GCC_USB30_MOCK_UTMI_CLK_SRC] = &usb30_mock_utmi_clk_src.clkr,
+	[GCC_USB3_PHY_AUX_CLK_SRC] = &usb3_phy_aux_clk_src.clkr,
+	[GCC_USB_HS_SYSTEM_CLK_SRC] = &usb_hs_system_clk_src.clkr,
+	[GCC_VSYNC_CLK_SRC] = &vsync_clk_src.clkr,
 	[GCC_USB_HS_INACTIVITY_TIMERS_CLK] =
 			&gcc_usb_hs_inactivity_timers_clk.clkr,
 	[GCC_BIMC_GPU_CLK] = &gcc_bimc_gpu_clk.clkr,
@@ -2686,21 +2703,19 @@ MODULE_DEVICE_TABLE(of, gcc_qcs404_match_table);
 static int gcc_qcs404_probe(struct platform_device *pdev)
 {
 	struct regmap *regmap;
-	int ret;
-
-	ret = qcom_cc_register_board_clk(&pdev->dev,
-					 "xo_board", "cxo", 19200000);
-	if (ret)
-		return ret;
+	int ret, i;
 
 	regmap = qcom_cc_map(pdev, &gcc_qcs404_desc);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
 	clk_alpha_pll_configure(&gpll3_out_main, regmap, &gpll3_config);
-	clk_set_rate(apss_ahb_clk_src.clkr.hw.clk, 19200000);
-	clk_prepare_enable(apss_ahb_clk_src.clkr.hw.clk);
-	clk_prepare_enable(gpll0_ao_out_main.clkr.hw.clk);
+
+	for (i = 0; i < ARRAY_SIZE(gcc_qcs404_hws); i++) {
+		ret = devm_clk_hw_register(&pdev->dev, gcc_qcs404_hws[i]);
+		if (ret)
+			return ret;
+	}
 
 	return qcom_cc_really_probe(pdev, &gcc_qcs404_desc, regmap);
 }
