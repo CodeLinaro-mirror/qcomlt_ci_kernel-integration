@@ -150,7 +150,7 @@
 	};
 
 	clocks {
-		xo_board: xo-board {
+		xo_board: xo_board {
 			compatible = "fixed-clock";
 			#clock-cells = <0>;
 			clock-frequency = <19200000>;
@@ -180,6 +180,9 @@
 			compatible = "qcom,gcc-qcs404";
 			reg = <0x1800000 0x80000>;
 			#clock-cells = <1>;
+
+			assigned-clocks = <&gcc GCC_APSS_AHB_CLK_SRC>;
+			assigned-clock-rates = <19200000>;
 		};
 
 		tcsr_mutex_regs: syscon@1905000 {
