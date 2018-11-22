@@ -16,6 +16,12 @@
 
 #include <linux/types.h>
 
+#define FASTRPC_IOCTL_INVOKE	_IOWR('R', 1, struct fastrpc_ioctl_invoke)
+#define FASTRPC_IOCTL_INVOKE_FD	_IOWR('R', 4, struct fastrpc_ioctl_invoke_fd)
+#define FASTRPC_IOCTL_INVOKE_ATTRS \
+				_IOWR('R', 7, struct fastrpc_ioctl_invoke_attrs)
+#define FASTRPC_IOCTL_INVOKE_CRC _IOWR('R', 11, struct fastrpc_ioctl_invoke_crc)
+
 /* Set for buffers that have no virtual mapping in userspace */
 #define FASTRPC_ATTR_NOVA 0x1
 
@@ -91,6 +97,5 @@ struct fastrpc_ioctl_invoke_crc {
 	unsigned int *attrs;	/* attribute list */
 	unsigned int *crc;
 };
-
 
 #endif /* __QCOM_FASTRPC_H__ */

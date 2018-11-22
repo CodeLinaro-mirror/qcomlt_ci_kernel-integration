@@ -1053,6 +1053,42 @@ static const struct of_device_id fastrpc_match_table[] = {
 	{}
 };
 
+static int fastrpc_session_alloc_locked(struct fastrpc_channel_ctx *chan,
+			int secure, struct fastrpc_session_ctx **session)
+{
+	int idx = 0, err = 0;
+
+	if (chan->sesscount) {
+		for (idx = 0; idx < chan->sesscount; ++idx) {
+			if (!chan->session[idx].used &&
+				chan->session[idx].secure == secure) {
+				chan->session[idx].used = 1;
+				break;
+			}
+		}
+		if (idx >= chan->sesscount)
+			goto bail;
+	} else {
+		return -EINVAL;
+	}
+
+	*session = &chan->session[idx];
+ bail:
+	return err;
+}
+
+static int fastrpc_session_alloc(struct fastrpc_channel_ctx *chan, int secure,
+					struct fastrpc_session_ctx **session)
+{
+	int err = 0;
+
+	spin_lock(&chan->lock);
+	if (!*session)
+		err = fastrpc_session_alloc_locked(chan, secure, session);
+	spin_unlock(&chan->lock);
+	return err;
+}
+
 static void fastrpc_session_free(struct fastrpc_channel_ctx *chan, struct fastrpc_session_ctx *session)
 {
 	spin_lock(&chan->lock);
@@ -1147,9 +1183,64 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
+				 unsigned long ioctl_param)
+{
+	union {
+		struct fastrpc_ioctl_invoke_crc inv;
+	} p;
+
+	void *param = (char *)ioctl_param;
+	struct fastrpc_user *fl = (struct fastrpc_user *)file->private_data;
+	struct fastrpc_channel_ctx *cctx = fl->channel_ctx;
+	int size = 0, err = 0;
+
+	p.inv.fds = NULL;
+	p.inv.attrs = NULL;
+	p.inv.crc = NULL;
+
+	if (!fl->sctx) {
+		err = fastrpc_session_alloc(cctx, 0, &fl->sctx);
+		if (err)
+			return err;
+	}
+
+	switch (ioctl_num) {
+	case FASTRPC_IOCTL_INVOKE:
+		size = sizeof(struct fastrpc_ioctl_invoke);
+		/* fallthrough */
+	case FASTRPC_IOCTL_INVOKE_FD:
+		if (!size)
+			size = sizeof(struct fastrpc_ioctl_invoke_fd);
+		/* fallthrough */
+	case FASTRPC_IOCTL_INVOKE_ATTRS:
+		if (!size)
+			size = sizeof(struct fastrpc_ioctl_invoke_attrs);
+		/* fallthrough */
+	case FASTRPC_IOCTL_INVOKE_CRC:
+		if (!size)
+			size = sizeof(struct fastrpc_ioctl_invoke_crc);
+		err = copy_from_user(&p.inv, (void const __user *)param, size);
+		if (err)
+			goto bail;
+		err = fastrpc_internal_invoke(fl, 0, &p.inv);
+		if (err)
+			goto bail;
+		break;
+default:
+		err = -ENOTTY;
+		pr_info("bad ioctl: %d\n", ioctl_num);
+		break;
+	}
+ bail:
+	return err;
+}
+
 static const struct file_operations fastrpc_fops = {
 	.open = fastrpc_device_open,
 	.release = fastrpc_device_release,
+	.unlocked_ioctl = fastrpc_device_ioctl,
+	.compat_ioctl = fastrpc_device_ioctl,
 };
 
 static int fastrpc_cb_probe(struct platform_device *pdev)
