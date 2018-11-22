@@ -27,6 +27,12 @@
 #define FASTRPC_IOCTL_ALLOC_DMA_BUFF _IOWR('R', 16, struct fastrpc_ioctl_alloc_dma_buf)
 #define FASTRPC_IOCTL_FREE_DMA_BUFF _IOWR('R', 17, uint32_t)
 
+#define FASTRPC_IOCTL_MMAP	_IOWR('R', 2, struct fastrpc_ioctl_mmap)
+#define FASTRPC_IOCTL_MUNMAP	_IOWR('R', 3, struct fastrpc_ioctl_munmap)
+#define FASTRPC_IOCTL_MUNMAP_FD _IOWR('R', 13, struct fastrpc_ioctl_munmap_fd)
+#define FASTRPC_IOCTL_MMAP_64	_IOWR('R', 14, struct fastrpc_ioctl_mmap_64)
+#define FASTRPC_IOCTL_MUNMAP_64	_IOWR('R', 15, struct fastrpc_ioctl_munmap_64)
+
 /* Set for buffers that have no virtual mapping in userspace */
 #define FASTRPC_ATTR_NOVA 0x1
 
@@ -129,6 +135,39 @@ struct fastrpc_ioctl_alloc_dma_buf {
 	int     fd;	/* fd */
 	ssize_t size;	/* size */
 	uint32_t flags;	/* flags to map with */
+};
+
+struct fastrpc_ioctl_munmap {
+	uintptr_t vaddrout;	/* address to unmap */
+	size_t size;		/* size */
+};
+
+struct fastrpc_ioctl_munmap_64 {
+	uint64_t vaddrout;	/* address to unmap */
+	size_t size;		/* size */
+};
+
+struct fastrpc_ioctl_mmap {
+	int fd;					/* ion fd */
+	uint32_t flags;			/* flags for dsp to map with */
+	uintptr_t vaddrin;		/* optional virtual address */
+	size_t size;			/* size */
+	uintptr_t vaddrout;		/* dsps virtual address */
+};
+
+struct fastrpc_ioctl_mmap_64 {
+	int fd;				/* ion fd */
+	uint32_t flags;			/* flags for dsp to map with */
+	uint64_t vaddrin;		/* optional virtual address */
+	size_t size;			/* size */
+	uint64_t vaddrout;		/* dsps virtual address */
+};
+
+struct fastrpc_ioctl_munmap_fd {
+	int     fd;				/* fd */
+	uint32_t  flags;		/* control flags */
+	uintptr_t va;			/* va */
+	ssize_t  len;			/* length */
 };
 
 #endif /* __QCOM_FASTRPC_H__ */

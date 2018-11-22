@@ -450,6 +450,41 @@ static const struct dma_buf_ops fastrpc_dma_buf_ops = {
 	.release = fastrpc_dmabuf_release,
 };
 
+static int fastrpc_mmap_remove(struct fastrpc_user *fl, uintptr_t va,
+			       size_t len, struct fastrpc_mmap **ppmap)
+{
+	struct fastrpc_mmap *match = NULL, *map = NULL, *n;
+	struct fastrpc_channel_ctx *cctx = fl->channel_ctx;
+
+	list_for_each_entry_safe(map, n, &cctx->maps, hn) {
+		if (map->raddr == va &&
+			map->raddr + map->len == va + len &&
+			map->refs == 1) {
+			match = map;
+			list_del(&map->hn);
+			break;
+		}
+	}
+	if (match) {
+		*ppmap = match;
+		return 0;
+	}
+	list_for_each_entry_safe(map, n, &fl->maps, hn) {
+		if (map->raddr == va &&
+			map->raddr + map->len == va + len &&
+			map->refs == 1) {
+			match = map;
+			list_del(&map->hn);
+			break;
+		}
+	}
+	if (match) {
+		*ppmap = match;
+		return 0;
+	}
+	return -ENOTTY;
+}
+
 static void fastrpc_mmap_free(struct fastrpc_mmap *map, uint32_t flags)
 {
 	struct fastrpc_user *fl;
@@ -1347,6 +1382,253 @@ static int fastrpc_release_current_dsp_process(struct fastrpc_user *fl)
 	return fastrpc_internal_invoke(fl, 1, &ioctl);
 }
 
+static int fastrpc_mmap_on_dsp(struct fastrpc_user *fl, uint32_t flags,
+					uintptr_t va, uint64_t phys,
+					size_t size, uintptr_t *raddr)
+{
+	struct fastrpc_ioctl_invoke_crc ioctl;
+	struct fastrpc_phy_page page;
+	int num = 1;
+	remote_arg_t ra[3];
+	int err = 0;
+	struct {
+		int pid;
+		uint32_t flags;
+		uintptr_t vaddrin;
+		int num;
+	} inargs;
+	struct {
+		uintptr_t vaddrout;
+	} routargs;
+
+	inargs.pid = fl->tgid;
+	inargs.vaddrin = (uintptr_t)va;
+	inargs.flags = flags;
+	inargs.num = /*fl->apps->compat ? */num * sizeof(page);// : num;
+
+	ra[0].buf.pv = (void *)&inargs;
+	ra[0].buf.len = sizeof(inargs);
+	page.addr = phys;
+	page.size = size;
+	ra[1].buf.pv = (void *)&page;
+	ra[1].buf.len = num * sizeof(page);
+
+	ra[2].buf.pv = (void *)&routargs;
+	ra[2].buf.len = sizeof(routargs);
+
+	ioctl.inv.handle = 1;
+
+	ioctl.inv.sc = FASTRPC_SCALARS(FASTRPC_RMID_MMAP_DSP, 2, 1);
+	ioctl.inv.pra = ra;
+	ioctl.fds = NULL;
+	ioctl.attrs = NULL;
+	ioctl.crc = NULL;
+	err = fastrpc_internal_invoke(fl, 1, &ioctl);
+	*raddr = (uintptr_t)routargs.vaddrout;
+	if (err)
+		goto bail;
+bail:
+	return err;
+}
+
+static int fastrpc_munmap_on_dsp_rh(struct fastrpc_user *fl, uint64_t phys,
+						size_t size, uint32_t flags)
+{
+	int err = 0;
+	int tgid = 0;
+
+	if (flags == ADSP_MMAP_HEAP_ADDR) {
+		struct fastrpc_ioctl_invoke_crc ioctl;
+		remote_arg_t ra[2];
+		int err = 0;
+		struct {
+			uint8_t skey;
+		} routargs;
+
+		if (fl == NULL)
+			goto bail;
+		tgid = fl->tgid;
+		ra[0].buf.pv = (void *)&tgid;
+		ra[0].buf.len = sizeof(tgid);
+
+		ra[1].buf.pv = (void *)&routargs;
+		ra[1].buf.len = sizeof(routargs);
+
+		ioctl.inv.handle = 1;
+		ioctl.inv.sc = FASTRPC_SCALARS(FASTRPC_RMID_UNMMAP_DSP_RH, 1, 1);
+		ioctl.inv.pra = ra;
+		ioctl.fds = NULL;
+		ioctl.attrs = NULL;
+		ioctl.crc = NULL;
+
+		err = fastrpc_internal_invoke(fl, 1, &ioctl);
+		if (err)
+			goto bail;
+	}
+
+bail:
+	return err;
+}
+
+static int fastrpc_munmap_on_dsp(struct fastrpc_user *fl, uintptr_t raddr,
+				uint64_t phys, size_t size, uint32_t flags)
+{
+	struct fastrpc_ioctl_invoke_crc ioctl;
+	remote_arg_t ra[1];
+	int err = 0;
+	struct {
+		int pid;
+		uintptr_t vaddrout;
+		size_t size;
+	} inargs;
+
+	inargs.pid = fl->tgid;
+	inargs.size = size;
+	inargs.vaddrout = raddr;
+	ra[0].buf.pv = (void *)&inargs;
+	ra[0].buf.len = sizeof(inargs);
+
+	ioctl.inv.handle = 1;
+	ioctl.inv.sc = FASTRPC_SCALARS(FASTRPC_RMID_UNMMAP_DSP, 1, 0);
+	ioctl.inv.pra = ra;
+	ioctl.fds = NULL;
+	ioctl.attrs = NULL;
+	ioctl.crc = NULL;
+	err = fastrpc_internal_invoke(fl, 1, &ioctl);
+	if (err)
+		goto bail;
+	if (flags == ADSP_MMAP_HEAP_ADDR ||
+				flags == ADSP_MMAP_REMOTE_HEAP_ADDR) {
+		err = fastrpc_munmap_on_dsp_rh(fl, phys, size, flags);
+		if (err)
+			goto bail;
+	}
+bail:
+	return err;
+}
+
+static int fastrpc_internal_munmap(struct fastrpc_user *fl,
+				   struct fastrpc_ioctl_munmap *ud)
+{
+	int err = 0;
+	struct fastrpc_mmap *map = NULL;
+	struct fastrpc_buf *rbuf = NULL, *free = NULL, *n;
+
+	mutex_lock(&fl->mutex);
+
+	spin_lock(&fl->lock);
+	list_for_each_entry_safe(rbuf, n, &fl->bufs, node) {
+		if (rbuf->raddr && (rbuf->flags == ADSP_MMAP_ADD_PAGES)) {
+			if ((rbuf->raddr == ud->vaddrout) &&
+				(rbuf->size == ud->size)) {
+				free = rbuf;
+				break;
+			}
+		}
+	}
+	spin_unlock(&fl->lock);
+
+	if (free) {
+		err = fastrpc_munmap_on_dsp(fl, free->raddr,
+			free->phys, free->size, free->flags);
+		if (err)
+			goto bail;
+		fastrpc_buf_free(rbuf, 0);
+		mutex_unlock(&fl->mutex);
+		return err;
+	}
+
+	err = fastrpc_mmap_remove(fl, ud->vaddrout, ud->size, &map);
+	if (err)
+		goto bail;
+	err = fastrpc_munmap_on_dsp(fl, map->raddr,
+				map->phys, map->size, map->flags);
+	if (err)
+		goto bail;
+	fastrpc_mmap_free(map, 0);
+bail:
+	if (err && map) {
+		fastrpc_mmap_add(map);
+	}
+	mutex_unlock(&fl->mutex);
+	return err;
+}
+
+static int fastrpc_internal_munmap_fd(struct fastrpc_user *fl,
+				struct fastrpc_ioctl_munmap_fd *ud)
+{
+	int err = 0;
+	struct fastrpc_mmap *map = NULL;
+
+	mutex_lock(&fl->mutex);
+	if (fastrpc_mmap_find(fl, ud->fd, ud->va, ud->len, 0, 0, &map)) {
+		pr_err("adsprpc: mapping not found to unmap fd 0x%x, va 0x%llx, len 0x%x\n",
+			ud->fd, (unsigned long long)ud->va,
+			(unsigned int)ud->len);
+		err = -1;
+		mutex_unlock(&fl->mutex);
+		goto bail;
+	}
+	if (map)
+		fastrpc_mmap_free(map, 0);
+	mutex_unlock(&fl->mutex);
+bail:
+	return err;
+}
+
+static int fastrpc_internal_mmap(struct fastrpc_user *fl,
+				 struct fastrpc_ioctl_mmap *ud)
+{
+	struct fastrpc_mmap *map = NULL;
+	struct fastrpc_buf *rbuf = NULL;
+	unsigned long dma_attr = 0;
+	uintptr_t raddr = 0;
+	int err = 0;
+
+	mutex_lock(&fl->mutex);
+	if (ud->flags == ADSP_MMAP_ADD_PAGES) {
+		if (ud->vaddrin) {
+			err = -EINVAL;
+			pr_err("adsprpc: %s: %s: ERROR: adding user allocated pages is not supported\n",
+					current->comm, __func__);
+			goto bail;
+		}
+
+		err = fastrpc_buf_alloc(fl, fl->sctx->dev, ud->size, dma_attr, ud->flags,
+								1, &rbuf);
+		if (err)
+			goto bail;
+		err = fastrpc_mmap_on_dsp(fl, ud->flags,
+				(uintptr_t)rbuf->virt,
+				rbuf->phys, rbuf->size, &raddr);
+		if (err)
+			goto bail;
+		rbuf->raddr = raddr;
+	} else {
+		err = fastrpc_mmap_create(fl, ud->fd, 0,
+				(uintptr_t)ud->vaddrin, ud->size,
+				 ud->flags, &map);
+		if (err)
+			goto bail;
+		err = fastrpc_mmap_on_dsp(fl, ud->flags, map->va,
+				map->phys, map->size, &raddr);
+		if (err)
+			goto bail;
+		map->raddr = raddr;
+	}
+	ud->vaddrout = raddr;
+ bail:
+	if (err) {
+		if (map) {
+			fastrpc_mmap_free(map, 0);
+		}
+		if (!IS_ERR_OR_NULL(rbuf))
+			fastrpc_buf_free(rbuf, 0);
+	}
+	mutex_unlock(&fl->mutex);
+	return err;
+}
+
 static const struct of_device_id fastrpc_match_table[] = {
 	{ .compatible = "qcom,fastrpc-compute-cb", },
 	{}
@@ -1487,6 +1769,9 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 {
 	union {
 		struct fastrpc_ioctl_invoke_crc inv;
+		struct fastrpc_ioctl_mmap mmap;
+		struct fastrpc_ioctl_munmap munmap;
+		struct fastrpc_ioctl_munmap_fd munmap_fd;
 		struct fastrpc_ioctl_init_attrs init;
 		struct fastrpc_ioctl_alloc_dma_buf bp;
 	} p;
@@ -1527,6 +1812,57 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 		if (err)
 			goto bail;
 		err = fastrpc_internal_invoke(fl, 0, &p.inv);
+		if (err)
+			goto bail;
+		break;
+	case FASTRPC_IOCTL_MMAP:
+		err = copy_from_user(&p.mmap, (void const __user *)param,
+						sizeof(p.mmap));
+		if (err)
+			goto bail;
+		err = fastrpc_internal_mmap(fl, &p.mmap);
+		if (err)
+			goto bail;
+		err = copy_to_user((void __user *)param, &p.mmap, sizeof(p.mmap));
+		if (err)
+			goto bail;
+		break;
+	case FASTRPC_IOCTL_MUNMAP:
+		err = copy_from_user(&p.munmap, (void const __user *)param,
+						sizeof(p.munmap));
+		if (err)
+			goto bail;
+		err = fastrpc_internal_munmap(fl, &p.munmap);
+		if (err)
+			goto bail;
+		break;
+	case FASTRPC_IOCTL_MMAP_64:
+		err = copy_from_user(&p.mmap, (void const __user *)param,
+						sizeof(p.mmap));
+		if (err)
+			goto bail;
+		err = fastrpc_internal_mmap(fl, &p.mmap);
+		if (err)
+			goto bail;
+		err = copy_to_user((void __user *)param, &p.mmap, sizeof(p.mmap));
+		if (err)
+			goto bail;
+		break;
+	case FASTRPC_IOCTL_MUNMAP_64:
+		err = copy_from_user(&p.munmap, (void const __user *)param,
+						sizeof(p.munmap));
+		if (err)
+			goto bail;
+		err = fastrpc_internal_munmap(fl, &p.munmap);
+		if (err)
+			goto bail;
+		break;
+	case FASTRPC_IOCTL_MUNMAP_FD:
+		err = copy_from_user(&p.munmap_fd, (void const __user *)param,
+			sizeof(p.munmap_fd));
+		if (err)
+			goto bail;
+		err = fastrpc_internal_munmap_fd(fl, &p.munmap_fd);
 		if (err)
 			goto bail;
 		break;
