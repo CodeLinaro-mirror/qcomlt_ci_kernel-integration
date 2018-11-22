@@ -24,6 +24,9 @@
 
 #define FASTRPC_IOCTL_INIT	_IOWR('R', 6, struct fastrpc_ioctl_init)
 #define FASTRPC_IOCTL_INIT_ATTRS _IOWR('R', 10, struct fastrpc_ioctl_init_attrs)
+#define FASTRPC_IOCTL_ALLOC_DMA_BUFF _IOWR('R', 16, struct fastrpc_ioctl_alloc_dma_buf)
+#define FASTRPC_IOCTL_FREE_DMA_BUFF _IOWR('R', 17, uint32_t)
+
 /* Set for buffers that have no virtual mapping in userspace */
 #define FASTRPC_ATTR_NOVA 0x1
 
@@ -120,6 +123,12 @@ struct fastrpc_ioctl_init_attrs {
 		struct fastrpc_ioctl_init init;
 		int attrs;
 		unsigned int siglen;
+};
+
+struct fastrpc_ioctl_alloc_dma_buf {
+	int     fd;	/* fd */
+	ssize_t size;	/* size */
+	uint32_t flags;	/* flags to map with */
 };
 
 #endif /* __QCOM_FASTRPC_H__ */

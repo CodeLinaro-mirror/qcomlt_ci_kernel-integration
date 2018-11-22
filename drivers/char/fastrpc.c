@@ -353,6 +353,103 @@ static int fastrpc_mmap_find(struct fastrpc_user *fl, int fd,
 	return -ENOTTY;
 }
 
+static struct sg_table *fastrpc_dmabuf_map_dma_buf(struct dma_buf_attachment
+			*attachment, enum dma_data_direction dir)
+{
+        struct fastrpc_dma_buf_attachment *a = attachment->priv;
+        struct sg_table *table;
+
+        table = &a->sgt;
+
+        if (!dma_map_sg(attachment->dev, table->sgl, table->nents, dir))
+                return ERR_PTR(-ENOMEM);
+
+        return table;
+}
+
+static void fastrpc_dmabuf_unmap_dma_buf(struct dma_buf_attachment *attach,
+				     struct sg_table *table,
+				     enum dma_data_direction dir)
+{
+}
+
+static void fastrpc_dmabuf_release(struct dma_buf *dmabuf)
+{
+}
+
+static int fastrpc_dma_buf_attach(struct dma_buf *dmabuf,
+			      struct dma_buf_attachment *attachment)
+{
+	struct fastrpc_dma_buf_attachment *a;
+	struct fastrpc_buf *buffer = dmabuf->priv;
+	int ret;
+
+	a = kzalloc(sizeof(*a), GFP_KERNEL);
+	if (!a)
+		return -ENOMEM;
+
+	ret = dma_get_sgtable(buffer->dev, &a->sgt, buffer->virt, buffer->dmabuf_phys, buffer->size);
+	if (ret < 0) {
+		dev_err(buffer->dev, "failed to get scatterlist from DMA API\n");
+		return -EINVAL;
+	}
+	a->dev = attachment->dev;
+	INIT_LIST_HEAD(&a->node);
+	attachment->priv = a;
+
+	mutex_lock(&buffer->lock);
+	list_add(&a->node, &buffer->attachments);
+	mutex_unlock(&buffer->lock);
+
+	return 0;
+}
+
+static void fastrpc_dma_buf_detatch(struct dma_buf *dmabuf,
+				struct dma_buf_attachment *attachment)
+{
+	struct fastrpc_dma_buf_attachment *a = attachment->priv;
+	struct fastrpc_buf *buffer = dmabuf->priv;
+
+	mutex_lock(&buffer->lock);
+	list_del(&a->node);
+	mutex_unlock(&buffer->lock);
+	kfree(a);
+}
+
+static void *fastrpc_dmabuf_kmap(struct dma_buf *dmabuf, unsigned long pgnum)
+{
+	struct fastrpc_buf *buf = dmabuf->priv;
+
+	return buf->virt ? buf->virt + pgnum * PAGE_SIZE : NULL;
+}
+
+static void *fastrpc_dmabuf_vmap(struct dma_buf *dmabuf)
+{
+	struct fastrpc_buf *buf = dmabuf->priv;
+
+	return buf->virt;
+}
+
+static int fastrpc_dmabuf_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
+{
+	struct fastrpc_buf *buf = dmabuf->priv;
+	size_t size = vma->vm_end - vma->vm_start;
+
+	return dma_mmap_coherent(buf->dev, vma,
+			buf->virt, buf->dmabuf_phys, size);
+}
+
+static const struct dma_buf_ops fastrpc_dma_buf_ops = {
+	.attach = fastrpc_dma_buf_attach,
+	.detach = fastrpc_dma_buf_detatch,
+	.map_dma_buf = fastrpc_dmabuf_map_dma_buf,
+	.unmap_dma_buf = fastrpc_dmabuf_unmap_dma_buf,
+	.mmap = fastrpc_dmabuf_mmap,
+	.map = fastrpc_dmabuf_kmap,
+	.vmap = fastrpc_dmabuf_vmap,
+	.release = fastrpc_dmabuf_release,
+};
+
 static void fastrpc_mmap_free(struct fastrpc_mmap *map, uint32_t flags)
 {
 	struct fastrpc_user *fl;
@@ -1391,18 +1488,21 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 	union {
 		struct fastrpc_ioctl_invoke_crc inv;
 		struct fastrpc_ioctl_init_attrs init;
+		struct fastrpc_ioctl_alloc_dma_buf bp;
 	} p;
 
 	void *param = (char *)ioctl_param;
 	struct fastrpc_user *fl = (struct fastrpc_user *)file->private_data;
 	struct fastrpc_channel_ctx *cctx = fl->channel_ctx;
 	int size = 0, err = 0;
+	uint32_t info;
 
 	p.inv.fds = NULL;
 	p.inv.attrs = NULL;
 	p.inv.crc = NULL;
 
-	if (!fl->sctx) {
+	if (!fl->sctx && ioctl_num != FASTRPC_IOCTL_ALLOC_DMA_BUFF &&
+			ioctl_num != FASTRPC_IOCTL_FREE_DMA_BUFF) {
 		err = fastrpc_session_alloc(cctx, 0, &fl->sctx);
 		if (err)
 			return err;
@@ -1448,6 +1548,55 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 		err = fastrpc_init_process(fl, &p.init);
 		if (err)
 			goto bail;
+		break;
+
+	case FASTRPC_IOCTL_FREE_DMA_BUFF: {
+		struct dma_buf *buf;
+		err = copy_from_user(&info, (void const __user *)param, sizeof(info));
+		if (err)
+			goto bail;
+
+		buf = dma_buf_get(info);
+		if (IS_ERR_OR_NULL(buf)) {
+			err = -EINVAL;
+			goto bail;
+		}
+		/* one for the last get and other for the ALLOC_DMA_BUFF ioctl */
+		dma_buf_put(buf);
+		dma_buf_put(buf);
+	}
+	break;
+	case FASTRPC_IOCTL_ALLOC_DMA_BUFF: {
+		DEFINE_DMA_BUF_EXPORT_INFO(exp_info);
+		struct fastrpc_buf *buf = NULL;
+		size = sizeof(struct fastrpc_ioctl_alloc_dma_buf);
+		err = copy_from_user(&p.bp, (void const __user* ) param, size);
+		if (err)
+			goto bail;
+
+		err = fastrpc_buf_alloc(fl, fl->dev, p.bp.size, 0, 0 /*ud->flags */, 1, &buf);
+		exp_info.ops = &fastrpc_dma_buf_ops;
+		exp_info.size = p.bp.size;
+		exp_info.flags = O_RDWR;
+		exp_info.priv = buf;
+		buf->dmabuf = dma_buf_export(&exp_info);
+		if (IS_ERR(buf->dmabuf)) {
+			err = PTR_ERR(buf->dmabuf);
+			goto bail;
+		}
+		get_dma_buf(buf->dmabuf);
+		p.bp.fd = dma_buf_fd(buf->dmabuf, O_ACCMODE);
+		if (p.bp.fd < 0) {
+			dma_buf_put(buf->dmabuf);
+			err = -EINVAL;
+			goto bail;
+		}
+
+		err = copy_to_user((void __user *)param, &p.bp, size);
+		if (err)
+			goto bail;
+
+		}
 		break;
 default:
 		err = -ENOTTY;
