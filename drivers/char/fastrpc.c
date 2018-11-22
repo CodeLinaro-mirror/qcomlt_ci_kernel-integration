@@ -1029,6 +1029,208 @@ static int fastrpc_internal_invoke(struct fastrpc_user *fl,
 	return err;
 }
 
+static int fastrpc_init_process(struct fastrpc_user *fl,
+				struct fastrpc_ioctl_init_attrs *uproc)
+{
+	struct fastrpc_ioctl_invoke_crc ioctl;
+	struct fastrpc_ioctl_init *init = &uproc->init;
+	struct fastrpc_phy_page pages[1];
+	struct fastrpc_mmap *file = NULL, *mem = NULL;
+	struct fastrpc_buf *imem = NULL;
+	unsigned long imem_dma_attr = 0;
+	char *proc_name = NULL;
+	struct fastrpc_channel_ctx *cctx = fl->channel_ctx;
+	int err = 0;
+
+	if (init->flags == FASTRPC_INIT_ATTACH ||
+			init->flags == FASTRPC_INIT_ATTACH_SENSORS) {
+		remote_arg_t ra[1];
+		int tgid = fl->tgid;
+
+		ra[0].buf.pv = (void *)&tgid;
+		ra[0].buf.len = sizeof(tgid);
+		ioctl.inv.handle = 1;
+		ioctl.inv.sc = FASTRPC_SCALARS(FASTRPC_RMID_INIT_ATTACH, 1, 0);
+		ioctl.inv.pra = ra;
+		ioctl.fds = NULL;
+		ioctl.attrs = NULL;
+		ioctl.crc = NULL;
+		if (init->flags == FASTRPC_INIT_ATTACH)
+			fl->pd = 0;
+		else if (init->flags == FASTRPC_INIT_ATTACH_SENSORS) {
+			fl->spdname = SENSORS_PDR_SERVICE_LOCATION_CLIENT_NAME;
+			fl->pd = 2;
+		}
+		err = fastrpc_internal_invoke(fl, 1, &ioctl);
+		if (err)
+			goto bail;
+	} else if (init->flags == FASTRPC_INIT_CREATE) {
+		int memlen;
+
+		remote_arg_t ra[6];
+		int fds[6];
+		int mflags = 0;
+		struct {
+			int pgid;
+			unsigned int namelen;
+			unsigned int filelen;
+			unsigned int pageslen;
+			int attrs;
+			int siglen;
+		} inbuf;
+
+		inbuf.pgid = fl->tgid;
+		inbuf.namelen = strlen(current->comm) + 1;
+		inbuf.filelen = init->filelen;
+		fl->pd = 1;
+
+		if (init->filelen) {
+			mutex_lock(&fl->mutex);
+			err = fastrpc_mmap_create(fl, init->filefd, 0,
+				init->file, init->filelen, mflags, &file);
+			mutex_unlock(&fl->mutex);
+			if (err)
+				goto bail;
+		}
+		inbuf.pageslen = 1;
+
+		if (init->mem) {
+			err = -EINVAL;
+			pr_err("adsprpc: %s: %s: ERROR: donated memory allocated in userspace\n",
+				current->comm, __func__);
+			goto bail;
+		}
+		memlen = ALIGN(max(1024*1024*3, (int)init->filelen * 4),
+						1024*1024);
+		err = fastrpc_buf_alloc(fl, fl->sctx->dev, memlen, imem_dma_attr, 0, 0, &imem);
+		if (err)
+			goto bail;
+		fl->init_mem = imem;
+
+		inbuf.pageslen = 1;
+		ra[0].buf.pv = (void *)&inbuf;
+		ra[0].buf.len = sizeof(inbuf);
+		fds[0] = 0;
+
+		ra[1].buf.pv = (void *)current->comm;
+		ra[1].buf.len = inbuf.namelen;
+		fds[1] = 0;
+
+		ra[2].buf.pv = (void *)init->file;
+		ra[2].buf.len = inbuf.filelen;
+		fds[2] = init->filefd;
+
+		pages[0].addr = imem->phys;
+		pages[0].size = imem->size;
+
+		ra[3].buf.pv = (void *)pages;
+		ra[3].buf.len = 1 * sizeof(*pages);
+		fds[3] = 0;
+
+		inbuf.attrs = uproc->attrs;
+		ra[4].buf.pv = (void *)&(inbuf.attrs);
+		ra[4].buf.len = sizeof(inbuf.attrs);
+		fds[4] = 0;
+
+		inbuf.siglen = uproc->siglen;
+		ra[5].buf.pv = (void *)&(inbuf.siglen);
+		ra[5].buf.len = sizeof(inbuf.siglen);
+		fds[5] = 0;
+
+		ioctl.inv.handle = 1;
+		ioctl.inv.sc = FASTRPC_SCALARS(FASTRPC_RMID_INIT_CREATE, 4, 0);
+		if (uproc->attrs)
+			ioctl.inv.sc = FASTRPC_SCALARS(
+					FASTRPC_RMID_INIT_CREATE_ATTR, 6, 0);
+		ioctl.inv.pra = ra;
+		ioctl.fds = fds;
+		ioctl.attrs = NULL;
+		ioctl.crc = NULL;
+		err = fastrpc_internal_invoke(fl, 1, &ioctl);
+		if (err)
+			goto bail;
+	} else if (init->flags == FASTRPC_INIT_CREATE_STATIC) {
+		remote_arg_t ra[3];
+		uint64_t phys = 0;
+		size_t size = 0;
+		struct {
+			int pgid;
+			unsigned int namelen;
+			unsigned int pageslen;
+		} inbuf;
+
+		if (!init->filelen)
+			goto bail;
+
+		proc_name = kzalloc(init->filelen, GFP_KERNEL);
+		if (IS_ERR_OR_NULL(proc_name))
+			goto bail;
+		err = copy_from_user((void *)proc_name,
+			(void __user *)init->file, init->filelen);
+		if (err)
+			goto bail;
+
+		fl->pd = 1;
+		inbuf.pgid = current->tgid;
+		inbuf.namelen = init->filelen;
+		inbuf.pageslen = 0;
+
+		if (!cctx->staticpd_flags) {
+			inbuf.pageslen = 1;
+			mutex_lock(&fl->mutex);
+			err = fastrpc_mmap_create(fl, -1, 0, init->mem,
+				 init->memlen, ADSP_MMAP_REMOTE_HEAP_ADDR,
+				 &mem);
+			mutex_unlock(&fl->mutex);
+			if (err)
+				goto bail;
+			phys = mem->phys;
+			size = mem->size;
+			cctx->staticpd_flags = 1;
+		}
+
+		ra[0].buf.pv = (void *)&inbuf;
+		ra[0].buf.len = sizeof(inbuf);
+
+		ra[1].buf.pv = (void *)proc_name;
+		ra[1].buf.len = inbuf.namelen;
+
+		pages[0].addr = phys;
+		pages[0].size = size;
+
+		ra[2].buf.pv = (void *)pages;
+		ra[2].buf.len = sizeof(*pages);
+		ioctl.inv.handle = 1;
+
+		ioctl.inv.sc = FASTRPC_SCALARS(FASTRPC_RMID_INIT_CREATE_STATIC,
+						3, 0);
+		ioctl.inv.pra = ra;
+		ioctl.fds = NULL;
+		ioctl.attrs = NULL;
+		ioctl.crc = NULL;
+		err = fastrpc_internal_invoke(fl, 1, &ioctl);
+		if (err)
+			goto bail;
+	} else {
+		err = -ENOTTY;
+	}
+bail:
+	kfree(proc_name);
+	if (err && (init->flags == FASTRPC_INIT_CREATE_STATIC))
+		cctx->staticpd_flags = 0;
+	if (mem && err) {
+		mutex_lock(&fl->mutex);
+		fastrpc_mmap_free(mem, 0);
+		mutex_unlock(&fl->mutex);
+	}
+	if (file) {
+		mutex_lock(&fl->mutex);
+		fastrpc_mmap_free(file, 0);
+		mutex_unlock(&fl->mutex);
+	}
+	return err;
+}
+
 static int fastrpc_release_current_dsp_process(struct fastrpc_user *fl)
 {
 	struct fastrpc_ioctl_invoke_crc ioctl;
@@ -1188,6 +1390,7 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 {
 	union {
 		struct fastrpc_ioctl_invoke_crc inv;
+		struct fastrpc_ioctl_init_attrs init;
 	} p;
 
 	void *param = (char *)ioctl_param;
@@ -1224,6 +1427,25 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 		if (err)
 			goto bail;
 		err = fastrpc_internal_invoke(fl, 0, &p.inv);
+		if (err)
+			goto bail;
+		break;
+	case FASTRPC_IOCTL_INIT:
+		p.init.attrs = 0;
+		p.init.siglen = 0;
+		size = sizeof(struct fastrpc_ioctl_init);
+		/* fall through */
+	case FASTRPC_IOCTL_INIT_ATTRS:
+		if (!size)
+			size = sizeof(struct fastrpc_ioctl_init_attrs);
+		err = copy_from_user(&p.init, (void const __user *)param, size);
+		if (err)
+			goto bail;
+		if (p.init.init.filelen > INIT_FILELEN_MAX)
+			goto bail;
+		if (p.init.init.memlen > INIT_MEMLEN_MAX)
+			goto bail;
+		err = fastrpc_init_process(fl, &p.init);
 		if (err)
 			goto bail;
 		break;
