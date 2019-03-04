@@ -637,6 +637,7 @@ static int fastrpc_get_args(u32 kernel, struct fastrpc_invoke_ctx *ctx)
 	struct fastrpc_remote_arg *rpra;
 	struct fastrpc_invoke_buf *list;
 	struct fastrpc_phy_page *pages;
+	uint64_t pg_start, pg_end;
 	int inbufs, i, err = 0;
 	u64 rlen, pkt_size;
 	uintptr_t args;
@@ -690,6 +691,9 @@ static int fastrpc_get_args(u32 kernel, struct fastrpc_invoke_ctx *ctx)
 			rpra[i].pv = args;
 			pages[i].addr = ctx->buf->phys + (pkt_size - rlen);
 			pages[i].addr = pages[i].addr &	PAGE_MASK;
+			pg_start = (args & PAGE_MASK) >> PAGE_SHIFT;
+			pg_end = ((args + len - 1) & PAGE_MASK) >> PAGE_SHIFT;
+			pages[i].size = (pg_end - pg_start + 1) * PAGE_SIZE;
 			args = args + len;
 			rlen -= len;
 		}
