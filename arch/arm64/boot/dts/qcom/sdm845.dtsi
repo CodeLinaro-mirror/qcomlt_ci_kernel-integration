@@ -1917,6 +1917,13 @@
 				};
 			};
 
+			qup_uart3_4pins_default: qup-uart3-4pins_default {
+				pinmux {
+					pins = "gpio41", "gpio42", "gpio43", "gpio44";
+					function = "qup3";
+				};
+			};
+
 			qup_uart4_default: qup-uart4-default {
 				pinmux {
 					pins = "gpio91", "gpio92";

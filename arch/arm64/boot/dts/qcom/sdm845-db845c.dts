@@ -566,6 +566,24 @@
 	};
 };
 
+&i2c11 {
+	/* On Low speed expansion */
+	label = "LS-I2C1";
+	status = "okay";
+};
+
+&i2c14 {
+	/* On Low speed expansion */
+	label = "LS-I2C0";
+	status = "okay";
+};
+
+&spi2 {
+	/* On Low speed expansion */
+	label = "LS-SPI0";
+	status = "okay";
+};
+
 &mdss {
 	status = "okay";
 };
@@ -714,6 +732,13 @@
 	};
 };
 
+&uart3 {
+	label = "LS-UART0";
+	status = "disabled";
+	pinctrl-names = "default";
+	pinctrl-0 = <&qup_uart3_4pins_default>;
+};
+
 &uart6 {
 	status = "okay";
 
@@ -729,6 +754,7 @@
 };
 
 &uart9 {
+	label = "LS-UART1";
 	status = "okay";
 };
 
