@@ -650,7 +650,7 @@
 			rpmhcc: clock-controller {
 				compatible = "qcom,sm8150-rpmh-clk";
 				#clock-cells = <1>;
-				clock-names = "xo";
+				clock-names = "xo_board";
 				clocks = <&xo_board>;
 			};
 		};
