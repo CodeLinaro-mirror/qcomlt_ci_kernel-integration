@@ -39,6 +39,7 @@
 #include <linux/pci.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
+#include <linux/qcom_scm.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 
@@ -132,6 +133,7 @@ struct arm_smmu_s2cr {
 	enum arm_smmu_s2cr_type		type;
 	enum arm_smmu_s2cr_privcfg	privcfg;
 	u8				cbndx;
+	bool				pinned;
 };
 
 #define s2cr_init_val (struct arm_smmu_s2cr){				\
@@ -186,6 +188,7 @@ struct arm_smmu_device {
 	u32				features;
 
 #define ARM_SMMU_OPT_SECURE_CFG_ACCESS (1 << 0)
+#define ARM_SMMU_OPT_QCOM_FW_IMPL_SAFE_ERRATA (1 << 1)
 	u32				options;
 	enum arm_smmu_arch_version	version;
 	enum arm_smmu_implementation	model;
@@ -271,6 +274,7 @@ static bool using_legacy_binding, using_generic_binding;
 
 static struct arm_smmu_option_prop arm_smmu_options[] = {
 	{ ARM_SMMU_OPT_SECURE_CFG_ACCESS, "calxeda,smmu-secure-config-access" },
+	{ ARM_SMMU_OPT_QCOM_FW_IMPL_SAFE_ERRATA, "qcom,smmu-500-fw-impl-safe-errata" },
 	{ 0, NULL},
 };
 
@@ -396,9 +400,19 @@ static int arm_smmu_register_legacy_master(struct device *dev,
 	return err;
 }
 
-static int __arm_smmu_alloc_bitmap(unsigned long *map, int start, int end)
+static int __arm_smmu_alloc_cb(struct arm_smmu_device *smmu, int start,
+			       struct device *dev)
 {
+	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
+	unsigned long *map = smmu->context_map;
+	int end = smmu->num_context_banks;
 	int idx;
+	int i;
+
+	for_each_cfg_sme(fwspec, i, idx) {
+		if (smmu->s2crs[idx].pinned)
+			return smmu->s2crs[idx].cbndx;
+	}
 
 	do {
 		idx = find_next_zero_bit(map, end, start);
@@ -756,7 +770,8 @@ static void arm_smmu_write_context_bank(struct arm_smmu_device *smmu, int idx)
 }
 
 static int arm_smmu_init_domain_context(struct iommu_domain *domain,
-					struct arm_smmu_device *smmu)
+					struct arm_smmu_device *smmu,
+					struct device *dev)
 {
 	int irq, start, ret = 0;
 	unsigned long ias, oas;
@@ -870,8 +885,7 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 		ret = -EINVAL;
 		goto out_unlock;
 	}
-	ret = __arm_smmu_alloc_bitmap(smmu->context_map, start,
-				      smmu->num_context_banks);
+	ret = __arm_smmu_alloc_cb(smmu, start, dev);
 	if (ret < 0)
 		goto out_unlock;
 
@@ -1054,9 +1068,21 @@ static void arm_smmu_test_smr_masks(struct arm_smmu_device *smmu)
 {
 	void __iomem *gr0_base = ARM_SMMU_GR0(smmu);
 	u32 smr;
+	int idx;
 
 	if (!smmu->smrs)
 		return;
+
+	for (idx = 0; idx < smmu->num_mapping_groups; idx++) {
+		smr = readl_relaxed(gr0_base + ARM_SMMU_GR0_SMR(idx));
+		if (!(smr & SMR_VALID))
+			break;
+	}
+
+	if (idx == smmu->num_mapping_groups) {
+		dev_err(smmu->dev, "Unable to compute streamid_mask\n");
+		return;
+	}
 
 	/*
 	 * SMR.ID bits may not be preserved if the corresponding MASK
@@ -1064,13 +1090,13 @@ static void arm_smmu_test_smr_masks(struct arm_smmu_device *smmu)
 	 * masters later if they try to claim IDs outside these masks.
 	 */
 	smr = smmu->streamid_mask << SMR_ID_SHIFT;
-	writel_relaxed(smr, gr0_base + ARM_SMMU_GR0_SMR(0));
-	smr = readl_relaxed(gr0_base + ARM_SMMU_GR0_SMR(0));
+	writel_relaxed(smr, gr0_base + ARM_SMMU_GR0_SMR(idx));
+	smr = readl_relaxed(gr0_base + ARM_SMMU_GR0_SMR(idx));
 	smmu->streamid_mask = smr >> SMR_ID_SHIFT;
 
 	smr = smmu->streamid_mask << SMR_MASK_SHIFT;
-	writel_relaxed(smr, gr0_base + ARM_SMMU_GR0_SMR(0));
-	smr = readl_relaxed(gr0_base + ARM_SMMU_GR0_SMR(0));
+	writel_relaxed(smr, gr0_base + ARM_SMMU_GR0_SMR(idx));
+	smr = readl_relaxed(gr0_base + ARM_SMMU_GR0_SMR(idx));
 	smmu->smr_mask_mask = smr >> SMR_MASK_SHIFT;
 }
 
@@ -1118,12 +1144,19 @@ static int arm_smmu_find_sme(struct arm_smmu_device *smmu, u16 id, u16 mask)
 
 static bool arm_smmu_free_sme(struct arm_smmu_device *smmu, int idx)
 {
+	bool pinned = smmu->s2crs[idx].pinned;
+	u8 cbndx = smmu->s2crs[idx].cbndx;;
+
 	if (--smmu->s2crs[idx].count)
 		return false;
 
 	smmu->s2crs[idx] = s2cr_init_val;
-	if (smmu->smrs)
+	if (pinned) {
+		smmu->s2crs[idx].pinned = true;
+		smmu->s2crs[idx].cbndx = cbndx;
+	} else if (smmu->smrs) {
 		smmu->smrs[idx].valid = false;
+	}
 
 	return true;
 }
@@ -1259,7 +1292,7 @@ static int arm_smmu_attach_dev(struct iommu_domain *domain, struct device *dev)
 		return ret;
 
 	/* Ensure that the domain is finalised */
-	ret = arm_smmu_init_domain_context(domain, smmu);
+	ret = arm_smmu_init_domain_context(domain, smmu, dev);
 	if (ret < 0)
 		goto rpm_put;
 
@@ -1793,6 +1826,48 @@ static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
 	writel(reg, ARM_SMMU_GR0_NS(smmu) + ARM_SMMU_GR0_sCR0);
 }
 
+static int arm_smmu_read_smr_state(struct arm_smmu_device *smmu)
+{
+	u32 smr, s2cr;
+	u32 mask;
+	u32 type;
+	u32 cbndx;
+	u32 privcfg;
+	u32 id;
+	int i;
+
+	for (i = 0; i < smmu->num_mapping_groups; i++) {
+		smr = readl_relaxed(ARM_SMMU_GR0(smmu) + ARM_SMMU_GR0_SMR(i));
+		mask = (smr >> SMR_MASK_SHIFT) & SMR_MASK_MASK;
+		id = smr & SMR_ID_MASK;
+
+		s2cr = readl_relaxed(ARM_SMMU_GR0(smmu) + ARM_SMMU_GR0_S2CR(i));
+		type = (s2cr >> S2CR_TYPE_SHIFT) & S2CR_TYPE_MASK;
+		cbndx = (s2cr >> S2CR_CBNDX_SHIFT) & S2CR_CBNDX_MASK;
+		privcfg = (s2cr >> S2CR_PRIVCFG_SHIFT) & S2CR_PRIVCFG_MASK;
+
+		smmu->smrs[i].mask = mask;
+		smmu->smrs[i].id = id;
+		smmu->smrs[i].valid = !!(smr & SMR_VALID);
+
+		smmu->s2crs[i].group = NULL;
+		smmu->s2crs[i].count = 0;
+		smmu->s2crs[i].type = type;
+		smmu->s2crs[i].privcfg = privcfg;
+		smmu->s2crs[i].cbndx = cbndx;
+
+		if (!(smr & SMR_VALID))
+			continue;
+
+		smmu->s2crs[i].pinned = true;
+		bitmap_set(smmu->context_map, cbndx, 1);
+
+		dev_err(smmu->dev, "Handoff smr: %x s2cr: %x cb: %d\n", smr, s2cr, cbndx);
+	}
+
+	return 0;
+}
+
 static int arm_smmu_id_size_to_bits(int size)
 {
 	switch (size) {
@@ -2017,6 +2092,8 @@ static int arm_smmu_device_cfg_probe(struct arm_smmu_device *smmu)
 	if (smmu->features & ARM_SMMU_FEAT_TRANS_S2)
 		dev_notice(smmu->dev, "\tStage-2: %lu-bit IPA -> %lu-bit PA\n",
 			   smmu->ipa_size, smmu->pa_size);
+
+	arm_smmu_read_smr_state(smmu);
 
 	return 0;
 }
@@ -2290,6 +2367,19 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, smmu);
 	arm_smmu_device_reset(smmu);
 	arm_smmu_test_smr_masks(smmu);
+
+	/*
+	 * To address performance degradation in non-real time clients,
+	 * such as USB and UFS, turn off wait-for-safe on sdm845 platforms,
+	 * such as MTP, whose firmwares implement corresponding secure monitor
+	 * call handlers.
+	 */
+	if (of_device_is_compatible(smmu->dev->of_node, "qcom,sdm845-smmu-500") &&
+	    smmu->options & ARM_SMMU_OPT_QCOM_FW_IMPL_SAFE_ERRATA) {
+		err = qcom_scm_qsmmu500_wait_safe_toggle(0);
+		if (err)
+			dev_warn(dev, "Failed to turn off SAFE logic\n");
+	}
 
 	/*
 	 * We want to avoid touching dev->power.lock in fastpaths unless
