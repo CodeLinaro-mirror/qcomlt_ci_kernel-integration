@@ -24,6 +24,9 @@ static LIST_HEAD(icc_providers);
 static DEFINE_MUTEX(icc_lock);
 static struct dentry *icc_debugfs_dir;
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/interconnect.h>
+
 /**
  * struct icc_req - constraints that are attached to each node
  * @req_node: entry in list of requests for the particular @node
@@ -453,6 +456,9 @@ int icc_set_bw(struct icc_path *path, u32 avg_bw, u32 peak_bw)
 
 		/* aggregate requests for this node */
 		aggregate_requests(node);
+
+		trace_icc_set_bw(node, dev_name(path->reqs[i].dev),
+				 avg_bw, peak_bw);
 	}
 
 	ret = apply_constraints(path);
@@ -465,6 +471,9 @@ int icc_set_bw(struct icc_path *path, u32 avg_bw, u32 peak_bw)
 			path->reqs[i].avg_bw = old_avg;
 			path->reqs[i].peak_bw = old_peak;
 			aggregate_requests(node);
+
+			trace_icc_set_bw(node, dev_name(path->reqs[i].dev),
+					 old_avg, old_peak);
 		}
 		apply_constraints(path);
 	}
