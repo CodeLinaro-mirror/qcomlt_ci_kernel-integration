@@ -226,7 +226,7 @@
 
 &apps_smmu {
 	/* TODO: Figure out how to survive booting with this enabled */
-	status = "disabled";
+	status = "okay";
 };
 
 &gcc {
