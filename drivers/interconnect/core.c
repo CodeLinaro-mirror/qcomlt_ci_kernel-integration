@@ -24,6 +24,9 @@ static LIST_HEAD(icc_providers);
 static DEFINE_MUTEX(icc_lock);
 static struct dentry *icc_debugfs_dir;
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/interconnect.h>
+
 /**
  * struct icc_req - constraints that are attached to each node
  * @req_node: entry in list of requests for the particular @node
@@ -65,8 +68,8 @@ static int icc_summary_show(struct seq_file *s, void *data)
 {
 	struct icc_provider *provider;
 
-	seq_puts(s, " node                                   avg         peak\n");
-	seq_puts(s, "--------------------------------------------------------\n");
+	seq_puts(s, " node                          tag         avg         peak\n");
+	seq_puts(s, "-----------------------------------------------------------\n");
 
 	mutex_lock(&icc_lock);
 
@@ -81,8 +84,8 @@ static int icc_summary_show(struct seq_file *s, void *data)
 				if (!r->dev)
 					continue;
 
-				seq_printf(s, "    %-26s %12u %12u\n",
-					   dev_name(r->dev), r->avg_bw,
+				seq_printf(s, "    %-26s %12u %12u %12u\n",
+					   dev_name(r->dev), r->tag, r->avg_bw,
 					   r->peak_bw);
 			}
 		}
@@ -405,8 +408,12 @@ void icc_set_tag(struct icc_path *path, u32 tag)
 	if (!path)
 		return;
 
+	mutex_lock(&icc_lock);
+
 	for (i = 0; i < path->num_nodes; i++)
 		path->reqs[i].tag = tag;
+
+	mutex_unlock(&icc_lock);
 }
 EXPORT_SYMBOL_GPL(icc_set_tag);
 
@@ -449,6 +456,9 @@ int icc_set_bw(struct icc_path *path, u32 avg_bw, u32 peak_bw)
 
 		/* aggregate requests for this node */
 		aggregate_requests(node);
+
+		trace_icc_set_bw(node, dev_name(path->reqs[i].dev),
+				 avg_bw, peak_bw);
 	}
 
 	ret = apply_constraints(path);
@@ -461,6 +471,9 @@ int icc_set_bw(struct icc_path *path, u32 avg_bw, u32 peak_bw)
 			path->reqs[i].avg_bw = old_avg;
 			path->reqs[i].peak_bw = old_peak;
 			aggregate_requests(node);
+
+			trace_icc_set_bw(node, dev_name(path->reqs[i].dev),
+					 old_avg, old_peak);
 		}
 		apply_constraints(path);
 	}
@@ -801,12 +814,7 @@ static int __init icc_init(void)
 	return 0;
 }
 
-static void __exit icc_exit(void)
-{
-	debugfs_remove_recursive(icc_debugfs_dir);
-}
-module_init(icc_init);
-module_exit(icc_exit);
+device_initcall(icc_init);
 
 MODULE_AUTHOR("Georgi Djakov <georgi.djakov@linaro.org>");
 MODULE_DESCRIPTION("Interconnect Driver Core");
