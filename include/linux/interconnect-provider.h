@@ -34,6 +34,7 @@ struct icc_node *of_icc_xlate_onecell(struct of_phandle_args *spec,
  *
  * @provider_list: list of the registered interconnect providers
  * @nodes: internal list of the interconnect provider nodes
+ * @lock: interconnect provider specific lock
  * @set: pointer to device specific set operation function
  * @aggregate: pointer to device specific aggregate operation function
  * @pre_aggregate: pointer to device specific function that is called
@@ -46,6 +47,7 @@ struct icc_node *of_icc_xlate_onecell(struct of_phandle_args *spec,
 struct icc_provider {
 	struct list_head	provider_list;
 	struct list_head	nodes;
+	struct mutex		lock;
 	int (*set)(struct icc_node *src, struct icc_node *dst);
 	int (*aggregate)(struct icc_node *node, u32 tag, u32 avg_bw,
 			 u32 peak_bw, u32 *agg_avg, u32 *agg_peak);
@@ -92,16 +94,25 @@ struct icc_node {
 
 #if IS_ENABLED(CONFIG_INTERCONNECT)
 
+int icc_std_aggregate(struct icc_node *node, u32 tag, u32 avg_bw,
+		      u32 peak_bw, u32 *agg_avg, u32 *agg_peak);
 struct icc_node *icc_node_create(int id);
 void icc_node_destroy(int id);
 int icc_link_create(struct icc_node *node, const int dst_id);
 int icc_link_destroy(struct icc_node *src, struct icc_node *dst);
 void icc_node_add(struct icc_node *node, struct icc_provider *provider);
 void icc_node_del(struct icc_node *node);
+int icc_nodes_remove(struct icc_provider *provider);
 int icc_provider_add(struct icc_provider *provider);
 int icc_provider_del(struct icc_provider *provider);
 
 #else
+
+static inline int icc_std_aggregate(struct icc_node *node, u32 tag, u32 avg_bw,
+				    u32 peak_bw, u32 *agg_avg, u32 *agg_peak)
+{
+	return -ENOTSUPP;
+}
 
 static inline struct icc_node *icc_node_create(int id)
 {
@@ -128,6 +139,11 @@ void icc_node_add(struct icc_node *node, struct icc_provider *provider)
 
 void icc_node_del(struct icc_node *node)
 {
+}
+
+static inline int icc_nodes_remove(struct icc_provider *provider)
+{
+	return -ENOTSUPP;
 }
 
 static inline int icc_provider_add(struct icc_provider *provider)
