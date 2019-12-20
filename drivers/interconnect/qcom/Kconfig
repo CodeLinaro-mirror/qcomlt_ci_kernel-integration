@@ -19,6 +19,14 @@ config INTERCONNECT_QCOM_MSM8916
 	  This is a driver for the Qualcomm Network-on-Chip on msm8916-based
 	  platforms.
 
+config INTERCONNECT_QCOM_MSM8916_STRESS
+	tristate "Stress test for the Qualcomm MSM8916 interconnect driver"
+	depends on INTERCONNECT_QCOM_MSM8916
+	help
+	  This is a driver for stress testing the the Qualcomm MSM8916
+	  interconnect driver. In includes running multiple threads in a
+	  loop that are setting random bandwidth on different paths.
+
 config INTERCONNECT_QCOM_MSM8974
 	tristate "Qualcomm MSM8974 interconnect driver"
 	depends on INTERCONNECT_QCOM
