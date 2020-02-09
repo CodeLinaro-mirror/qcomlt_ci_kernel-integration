@@ -38,6 +38,7 @@ properties:
        - qcom,gcc-sdm660
        - qcom,gcc-sdm845
        - qcom,gcc-sm8150
+       - qcom,gcc-sm8250
 
   clocks:
     minItems: 1
