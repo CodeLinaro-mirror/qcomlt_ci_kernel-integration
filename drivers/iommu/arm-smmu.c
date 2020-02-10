@@ -1728,17 +1728,17 @@ static int arm_smmu_read_smr_state(struct arm_smmu_device *smmu)
 
 	for (i = 0; i < smmu->num_mapping_groups; i++) {
 		smr = arm_smmu_gr0_read(smmu, ARM_SMMU_GR0_SMR(i));
-		mask = FIELD_GET(SMR_MASK, smr);
-		id = FIELD_GET(SMR_ID, smr);
+		mask = FIELD_GET(ARM_SMMU_SMR_MASK, smr);
+		id = FIELD_GET(ARM_SMMU_SMR_ID, smr);
 
 		s2cr = arm_smmu_gr0_read(smmu, ARM_SMMU_GR0_S2CR(i));
-		type = FIELD_GET(S2CR_TYPE, s2cr);
-		cbndx = FIELD_GET(S2CR_CBNDX, s2cr);
-		privcfg = FIELD_GET(S2CR_PRIVCFG, s2cr);
+		type = FIELD_GET(ARM_SMMU_S2CR_TYPE, s2cr);
+		cbndx = FIELD_GET(ARM_SMMU_S2CR_CBNDX, s2cr);
+		privcfg = FIELD_GET(ARM_SMMU_S2CR_PRIVCFG, s2cr);
 
 		smmu->smrs[i].mask = mask;
 		smmu->smrs[i].id = id;
-		smmu->smrs[i].valid = !!(smr & SMR_VALID);
+		smmu->smrs[i].valid = !!(smr & ARM_SMMU_SMR_VALID);
 
 		smmu->s2crs[i].group = NULL;
 		smmu->s2crs[i].count = 0;
@@ -1746,7 +1746,7 @@ static int arm_smmu_read_smr_state(struct arm_smmu_device *smmu)
 		smmu->s2crs[i].privcfg = privcfg;
 		smmu->s2crs[i].cbndx = cbndx;
 
-		if (!(smr & SMR_VALID))
+		if (!(smr & ARM_SMMU_SMR_VALID))
 			continue;
 
 		smmu->s2crs[i].pinned = true;
