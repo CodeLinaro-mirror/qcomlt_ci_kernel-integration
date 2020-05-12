@@ -141,6 +141,30 @@
 		startup-delay-us = <70000>;
 		enable-active-high;
 	};
+
+	camera_vdddo_1v8: fixedregulator@0 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_vdddo";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
+	camera_vdda_2v8: fixedregulator@1 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_vdda";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		regulator-always-on;
+	};
+
+	camera_vddd_1v5: fixedregulator@2 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_vddd";
+		regulator-min-microvolt = <1500000>;
+		regulator-max-microvolt = <1500000>;
+		regulator-always-on;
+	};
 };
 
 &blsp1_i2c2 {
@@ -207,7 +231,56 @@
 };
 
 &camss {
+	status = "okay";
 	vdda-supply = <&vreg_l2a_1p25>;
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		port@0 {
+			reg = <0>;
+			csiphy0_ep: endpoint {
+				clock-lanes = <7>;
+				data-lanes = <0 1>;
+				remote-endpoint = <&ov5640_ep>;
+				status = "disabled";
+			};
+		};
+	};
+};
+
+&cci {
+	status = "okay";
+
+	i2c-bus@0 {
+		camera_rear@60 {
+			compatible = "ovti,ov5640";
+			reg = <0x60>;
+
+			enable-gpios = <&msmgpio 25 GPIO_ACTIVE_HIGH>;
+			reset-gpios = <&msmgpio 26 GPIO_ACTIVE_HIGH>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&camera_rear_default>;
+
+			clocks = <&mmcc CAMSS_MCLK0_CLK>;
+			clock-names = "xclk";
+			clock-frequency = <24000000>;
+
+			vdddo-supply = <&camera_vdddo_1v8>;
+			vdda-supply = <&camera_vdda_2v8>;
+			vddd-supply = <&camera_vddd_1v5>;
+
+			status = "disabled";
+
+			port {
+				ov5640_ep: endpoint {
+					clock-lanes = <1>;
+					data-lanes = <0>;
+					remote-endpoint = <&csiphy0_ep>;
+				};
+			};
+		};
+	};
 };
 
 &hdmi {
@@ -658,8 +731,8 @@
 	s11 {
 		qcom,saw-leader;
 		regulator-always-on;
-		regulator-min-microvolt = <1230000>;
-		regulator-max-microvolt = <1230000>;
+		regulator-min-microvolt = <980000>;
+		regulator-max-microvolt = <980000>;
 	};
 };
 
@@ -908,37 +981,35 @@
 	status = "okay";
 };
 
+&adsp {
+	status = "okay";
+	firmware-name = "qcom/msm8996/adsp.mdt";
+};
+
+&q6asmdai {
+	dai@0 {
+		reg = <0>;
+		/*direction = <2>;*/
+	};
+
+	dai@1 {
+		reg = <1>;
+		/*direction = <2>;*/
+	};
+
+	dai@2 {
+		reg = <2>;
+		/*direction = <1>;*/
+	};
+};
+
 &sound {
 	compatible = "qcom,apq8096-sndcard";
 	model = "DB820c";
-	audio-routing =
-		"RX_BIAS", "MCLK",
-		"MIC BIAS1", "MCLK",
-		"MIC BIAS2", "MCLK",
-		"MIC BIAS3", "MCLK",
-		"MIC BIAS4", "MCLK",
-		"AMIC1", "MIC BIAS2",
-		"MIC BIAS2", "Headset Mic",
-		"AMIC2", "MIC BIAS2",
-		"MIC BIAS2", "Headset Mic",
-		"AMIC3", "MIC BIAS2",
-		"MIC BIAS2", "ANCLeft Headset Mic",
-		"AMIC4", "MIC BIAS2",
-		"MIC BIAS2", "ANCRight Headset Mic",
-		"AMIC5", "MIC BIAS2",
-		"MIC BIAS2", "Analog Mic6",
-		"AMIC6", "MIC BIAS2",
-		"MIC BIAS2", "Analog Mic7",
-		"DMIC2", "MIC BIAS1",
-		"MIC BIAS1", "Digital Mic2",
-		"DMIC3", "MIC BIAS1",
-		"MIC BIAS1", "Digital Mic3",
-		"DMIC4", "MIC BIAS3",
-		"MIC BIAS3", "Digital Mic4",
-		"DMIC5", "MIC BIAS3",
-		"MIC BIAS3", "Digital Mic5",
-		"SpkrLeft IN", "SPK1 OUT",
-		"SpkrRight IN", "SPK2 OUT";
+	audio-routing =	"RX_BIAS", "MCLK",
+		"MM_DL1",  "MultiMedia1 Playback",
+		"MM_DL2",  "MultiMedia2 Playback",
+		"MultiMedia3 Capture", "MM_UL3";
 
 	mm1-dai-link {
 		link-name = "MultiMedia1";

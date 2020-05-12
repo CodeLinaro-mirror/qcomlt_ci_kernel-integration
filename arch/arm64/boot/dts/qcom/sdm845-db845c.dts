@@ -962,14 +962,6 @@
 	};
 };
 
-&qup_i2c10_default {
-	pinconf {
-		pins = "gpio55", "gpio56";
-		drive-strength = <2>;
-		bias-disable;
-	};
-};
-
 &qup_uart6_default {
 	pinmux {
 		pins = "gpio45", "gpio46", "gpio47", "gpio48";
