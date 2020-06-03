@@ -1736,6 +1736,9 @@
 		};
 	};
 
+	thermal_zones: thermal-zones {
+	};
+
 	timer {
 		compatible = "arm,armv8-timer";
 		interrupts = <GIC_PPI 13
