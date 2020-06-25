@@ -358,6 +358,7 @@
 #define TIMEOUT_MS 1000
 #define AFE_CMD_RESP_AVAIL	0
 #define AFE_CMD_RESP_NONE	1
+#define AFE_CLK_TOKEN		1024
 
 struct q6afe {
 	struct apr_device *apr;
@@ -886,6 +887,9 @@ static int q6afe_callback(struct apr_device *adev, struct apr_resp_pkt *data)
 				port->result = *res;
 				wake_up(&port->wait);
 				kref_put(&port->refcount, q6afe_port_free);
+			} else if (hdr->token == AFE_CLK_TOKEN) {
+				afe->result = *res;
+				wake_up(&afe->wait);
 			}
 			break;
 		case AFE_CMD_REMOTE_LPASS_CORE_HW_VOTE_REQUEST:
@@ -972,14 +976,13 @@ err:
 	return ret;
 }
 
-static int q6afe_port_set_param(struct q6afe_port *port, void *data,
-				int param_id, int module_id, int psize)
+static int q6afe_set_param(struct q6afe *afe, struct q6afe_port *port,
+			   void *data, int param_id, int module_id, int psize,
+			   int token, bool wait)
 {
 	struct afe_svc_cmd_set_param *param;
 	struct afe_port_param_data_v2 *pdata;
-	struct q6afe *afe = port->afe;
 	struct apr_pkt *pkt;
-	u16 port_id = port->id;
 	int ret, pkt_size;
 	void *p, *pl;
 
@@ -1000,7 +1003,7 @@ static int q6afe_port_set_param(struct q6afe_port *port, void *data,
 	pkt->hdr.pkt_size = pkt_size;
 	pkt->hdr.src_port = 0;
 	pkt->hdr.dest_port = 0;
-	pkt->hdr.token = port->token;
+	pkt->hdr.token = token;
 	pkt->hdr.opcode = AFE_SVC_CMD_SET_PARAM;
 
 	param->payload_size = sizeof(*pdata) + psize;
@@ -1011,13 +1014,19 @@ static int q6afe_port_set_param(struct q6afe_port *port, void *data,
 	pdata->param_id = param_id;
 	pdata->param_size = psize;
 
-	ret = afe_apr_send_pkt(afe, pkt, port, true);
+	ret = afe_apr_send_pkt(afe, pkt, port, wait);
 	if (ret)
-		dev_err(afe->dev, "AFE enable for port 0x%x failed %d\n",
-		       port_id, ret);
+		dev_err(afe->dev, "AFE set params failed %d\n", ret);
 
 	kfree(pkt);
 	return ret;
+}
+
+static int q6afe_port_set_param(struct q6afe_port *port, void *data,
+				int param_id, int module_id, int psize)
+{
+	return q6afe_set_param(port->afe, port, data, param_id, module_id,
+			       psize, port->token, true);
 }
 
 static int q6afe_port_set_param_v2(struct q6afe_port *port, void *data,
@@ -1069,7 +1078,7 @@ static int q6afe_port_set_param_v2(struct q6afe_port *port, void *data,
 	return ret;
 }
 
-static int q6afe_set_lpass_clock(struct q6afe_port *port,
+static int q6afe_port_set_lpass_clock(struct q6afe_port *port,
 				 struct afe_clk_cfg *cfg)
 {
 	return q6afe_port_set_param_v2(port, cfg,
@@ -1094,6 +1103,28 @@ static int q6afe_set_digital_codec_core_clock(struct q6afe_port *port,
 				       sizeof(*cfg));
 }
 
+int q6afe_set_lpass_clock(struct device *dev, int clk_id, int attri,
+			  int clk_root, unsigned int freq)
+{
+	struct q6afe *afe = dev_get_drvdata(dev->parent);
+	struct afe_clk_set cset = {0,};
+
+	cset.clk_set_minor_version = AFE_API_VERSION_CLOCK_SET;
+	cset.clk_id = clk_id;
+	cset.clk_freq_in_hz = freq;
+	cset.clk_attri = attri;
+	cset.clk_root = clk_root;
+	cset.enable = !!freq;
+
+	pr_err("DEBUG: %s: %d clk-id %x ->  rate %d \n", __func__, __LINE__,
+	       clk_id, freq);
+
+	return q6afe_set_param(afe, NULL, &cset, AFE_PARAM_ID_CLOCK_SET,
+			       AFE_MODULE_CLOCK_SET, sizeof(cset),
+			       AFE_CLK_TOKEN, false);
+}
+EXPORT_SYMBOL_GPL(q6afe_set_lpass_clock);
+
 int q6afe_port_set_sysclk(struct q6afe_port *port, int clk_id,
 			  int clk_src, int clk_root,
 			  unsigned int freq, int dir)
@@ -1116,7 +1147,7 @@ int q6afe_port_set_sysclk(struct q6afe_port *port, int clk_id,
 		ccfg.clk_src = clk_src;
 		ccfg.clk_root = clk_root;
 		ccfg.clk_set_mode = Q6AFE_LPASS_MODE_CLK1_VALID;
-		ret = q6afe_set_lpass_clock(port, &ccfg);
+		ret = q6afe_port_set_lpass_clock(port, &ccfg);
 		break;
 
 	case LPAIF_OSR_CLK:
@@ -1125,11 +1156,12 @@ int q6afe_port_set_sysclk(struct q6afe_port *port, int clk_id,
 		ccfg.clk_src = clk_src;
 		ccfg.clk_root = clk_root;
 		ccfg.clk_set_mode = Q6AFE_LPASS_MODE_CLK2_VALID;
-		ret = q6afe_set_lpass_clock(port, &ccfg);
+		ret = q6afe_port_set_lpass_clock(port, &ccfg);
 		break;
 	case Q6AFE_LPASS_CLK_ID_PRI_MI2S_IBIT ... Q6AFE_LPASS_CLK_ID_QUI_MI2S_OSR:
 	case Q6AFE_LPASS_CLK_ID_MCLK_1 ... Q6AFE_LPASS_CLK_ID_INT_MCLK_1:
 	case Q6AFE_LPASS_CLK_ID_PRI_TDM_IBIT ... Q6AFE_LPASS_CLK_ID_QUIN_TDM_EBIT:
+	case Q6AFE_LPASS_CLK_ID_WSA_CORE_MCLK ... Q6AFE_LPASS_CLK_ID_VA_CORE_2X_MCLK:
 		cset.clk_set_minor_version = AFE_API_VERSION_CLOCK_SET;
 		cset.clk_id = clk_id;
 		cset.clk_freq_in_hz = freq;
