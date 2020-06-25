@@ -556,6 +556,7 @@ static int q6afe_mi2s_set_sysclk(struct snd_soc_dai *dai,
 					     freq, dir);
 	case Q6AFE_LPASS_CLK_ID_PRI_MI2S_IBIT ... Q6AFE_LPASS_CLK_ID_QUI_MI2S_OSR:
 	case Q6AFE_LPASS_CLK_ID_MCLK_1 ... Q6AFE_LPASS_CLK_ID_INT_MCLK_1:
+	case Q6AFE_CLK_ID_WSA_CORE_MCLK ... Q6AFE_CLK_ID_VA_CORE_2X_MCLK:
 		return q6afe_port_set_sysclk(port, clk_id,
 					     Q6AFE_LPASS_CLK_ATTRIBUTE_COUPLE_NO,
 					     Q6AFE_LPASS_CLK_ROOT_DEFAULT,
@@ -746,7 +747,6 @@ static const struct snd_soc_dai_ops q6tdm_ops = {
 static const struct snd_soc_dai_ops q6dma_ops = {
 	.prepare	= q6afe_dai_prepare,
 	.shutdown	= q6afe_dai_shutdown,
-	//TODO
 	.set_sysclk	= q6afe_mi2s_set_sysclk,
 	.set_channel_map  = q6dma_set_channel_map,
 	.hw_params        = q6dma_hw_params,
