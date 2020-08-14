@@ -1327,6 +1327,7 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 	struct pcie_port *pp;
 	struct dw_pcie *pci;
 	struct qcom_pcie *pcie;
+	void __iomem *atu_base;
 	int ret;
 
 	pcie = devm_kzalloc(dev, sizeof(*pcie), GFP_KERNEL);
@@ -1378,6 +1379,12 @@ static int qcom_pcie_probe(struct platform_device *pdev)
 		ret = PTR_ERR(pcie->elbi);
 		goto err_pm_runtime_put;
 	}
+
+	/* Get the optional ATU region if provided */
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "atu");
+	atu_base = devm_ioremap_resource(dev, res);
+	if (!IS_ERR(atu_base))
+		pci->atu_base = atu_base;
 
 	pcie->phy = devm_phy_optional_get(dev, "pciephy");
 	if (IS_ERR(pcie->phy)) {
@@ -1432,6 +1439,7 @@ static const struct of_device_id qcom_pcie_match[] = {
 	{ .compatible = "qcom,pcie-ipq4019", .data = &ops_2_4_0 },
 	{ .compatible = "qcom,pcie-qcs404", .data = &ops_2_4_0 },
 	{ .compatible = "qcom,pcie-sdm845", .data = &ops_2_7_0 },
+	{ .compatible = "qcom,pcie-sm8250", .data = &ops_2_7_0 },
 	{ }
 };
 
