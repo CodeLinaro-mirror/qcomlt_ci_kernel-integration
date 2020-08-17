@@ -902,7 +902,7 @@ int q6afe_get_port_id(int index)
 EXPORT_SYMBOL_GPL(q6afe_get_port_id);
 
 static int afe_apr_send_pkt(struct q6afe *afe, struct apr_pkt *pkt,
-			    struct q6afe_port *port)
+			    struct q6afe_port *port, bool should_wait)
 {
 	wait_queue_head_t *wait = &port->wait;
 	struct apr_hdr *hdr = &pkt->hdr;
@@ -916,6 +916,11 @@ static int afe_apr_send_pkt(struct q6afe *afe, struct apr_pkt *pkt,
 	if (ret < 0) {
 		dev_err(afe->dev, "packet not transmitted (%d)\n", ret);
 		ret = -EINVAL;
+		goto err;
+	}
+
+	if (!should_wait) {
+		ret = 0;
 		goto err;
 	}
 
@@ -976,7 +981,7 @@ static int q6afe_port_set_param(struct q6afe_port *port, void *data,
 	pdata->param_id = param_id;
 	pdata->param_size = psize;
 
-	ret = afe_apr_send_pkt(afe, pkt, port);
+	ret = afe_apr_send_pkt(afe, pkt, port, true);
 	if (ret)
 		dev_err(afe->dev, "AFE enable for port 0x%x failed %d\n",
 		       port_id, ret);
@@ -1025,7 +1030,7 @@ static int q6afe_port_set_param_v2(struct q6afe_port *port, void *data,
 	pdata->param_id = param_id;
 	pdata->param_size = psize;
 
-	ret = afe_apr_send_pkt(afe, pkt, port);
+	ret = afe_apr_send_pkt(afe, pkt, port, true);
 	if (ret)
 		dev_err(afe->dev, "AFE enable for port 0x%x failed %d\n",
 		       port_id, ret);
@@ -1155,7 +1160,7 @@ int q6afe_port_stop(struct q6afe_port *port)
 	stop->port_id = port_id;
 	stop->reserved = 0;
 
-	ret = afe_apr_send_pkt(afe, pkt, port);
+	ret = afe_apr_send_pkt(afe, pkt, port, true);
 	if (ret)
 		dev_err(afe->dev, "AFE close failed %d\n", ret);
 
@@ -1466,7 +1471,7 @@ int q6afe_port_start(struct q6afe_port *port)
 
 	start->port_id = port_id;
 
-	ret = afe_apr_send_pkt(afe, pkt, port);
+	ret = afe_apr_send_pkt(afe, pkt, port, true);
 	if (ret)
 		dev_err(afe->dev, "AFE enable for port 0x%x failed %d\n",
 			port_id, ret);
