@@ -932,6 +932,9 @@ int dev_pm_opp_set_rate(struct device *dev, unsigned long target_freq)
 
 	/* Return early if nothing to do */
 	if (old_freq == freq) {
+		if (opp_table->required_opp_tables || opp_table->regulators ||
+		    opp_table->paths)
+			goto skip_clk_only;
 		dev_dbg(dev, "%s: old/new frequencies (%lu Hz) are same, nothing to do\n",
 			__func__, freq);
 		ret = 0;
@@ -950,6 +953,7 @@ int dev_pm_opp_set_rate(struct device *dev, unsigned long target_freq)
 		goto put_opp_table;
 	}
 
+skip_clk_only:
 	temp_freq = old_freq;
 	old_opp = _find_freq_ceil(opp_table, &temp_freq);
 	if (IS_ERR(old_opp)) {
@@ -985,8 +989,10 @@ int dev_pm_opp_set_rate(struct device *dev, unsigned long target_freq)
 						 IS_ERR(old_opp) ? NULL : old_opp->supplies,
 						 opp->supplies);
 	} else {
+		ret = 0;
 		/* Only frequency scaling */
-		ret = _generic_set_opp_clk_only(dev, clk, freq);
+		if (freq != old_freq)
+			ret = _generic_set_opp_clk_only(dev, clk, freq);
 	}
 
 	/* Scaling down? Configure required OPPs after frequency */
