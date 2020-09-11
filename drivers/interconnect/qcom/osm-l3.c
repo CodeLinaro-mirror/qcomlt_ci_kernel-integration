@@ -16,17 +16,24 @@
 
 #include "sc7180.h"
 #include "sdm845.h"
+#include "sm8150.h"
+#include "sm8250.h"
 
 #define LUT_MAX_ENTRIES			40U
 #define LUT_SRC				GENMASK(31, 30)
 #define LUT_L_VAL			GENMASK(7, 0)
-#define LUT_ROW_SIZE			32
 #define CLK_HW_DIV			2
 
-/* Register offsets */
+/* OSM Register offsets */
 #define REG_ENABLE			0x0
-#define REG_FREQ_LUT			0x110
-#define REG_PERF_STATE			0x920
+#define OSM_LUT_ROW_SIZE		32
+#define OSM_REG_FREQ_LUT		0x110
+#define OSM_REG_PERF_STATE		0x920
+
+/* EPSS Register offsets */
+#define EPSS_LUT_ROW_SIZE		4
+#define EPSS_REG_FREQ_LUT		0x100
+#define EPSS_REG_PERF_STATE		0x320
 
 #define OSM_L3_MAX_LINKS		1
 
@@ -36,6 +43,7 @@
 struct qcom_osm_l3_icc_provider {
 	void __iomem *base;
 	unsigned int max_state;
+	unsigned int reg_perf_state;
 	unsigned long lut_tables[LUT_MAX_ENTRIES];
 	struct icc_provider provider;
 };
@@ -59,6 +67,9 @@ struct qcom_icc_node {
 struct qcom_icc_desc {
 	struct qcom_icc_node **nodes;
 	size_t num_nodes;
+	unsigned int lut_row_size;
+	unsigned int reg_freq_lut;
+	unsigned int reg_perf_state;
 };
 
 #define DEFINE_QNODE(_name, _id, _buswidth, ...)			\
@@ -81,6 +92,9 @@ static struct qcom_icc_node *sdm845_osm_l3_nodes[] = {
 static const struct qcom_icc_desc sdm845_icc_osm_l3 = {
 	.nodes = sdm845_osm_l3_nodes,
 	.num_nodes = ARRAY_SIZE(sdm845_osm_l3_nodes),
+	.lut_row_size = OSM_LUT_ROW_SIZE,
+	.reg_freq_lut = OSM_REG_FREQ_LUT,
+	.reg_perf_state = OSM_REG_PERF_STATE,
 };
 
 DEFINE_QNODE(sc7180_osm_apps_l3, SC7180_MASTER_OSM_L3_APPS, 16, SC7180_SLAVE_OSM_L3);
@@ -94,6 +108,41 @@ static struct qcom_icc_node *sc7180_osm_l3_nodes[] = {
 static const struct qcom_icc_desc sc7180_icc_osm_l3 = {
 	.nodes = sc7180_osm_l3_nodes,
 	.num_nodes = ARRAY_SIZE(sc7180_osm_l3_nodes),
+	.lut_row_size = OSM_LUT_ROW_SIZE,
+	.reg_freq_lut = OSM_REG_FREQ_LUT,
+	.reg_perf_state = OSM_REG_PERF_STATE,
+};
+
+DEFINE_QNODE(sm8150_osm_apps_l3, SM8150_MASTER_OSM_L3_APPS, 32, SM8150_SLAVE_OSM_L3);
+DEFINE_QNODE(sm8150_osm_l3, SM8150_SLAVE_OSM_L3, 32);
+
+static struct qcom_icc_node *sm8150_osm_l3_nodes[] = {
+	[MASTER_OSM_L3_APPS] = &sm8150_osm_apps_l3,
+	[SLAVE_OSM_L3] = &sm8150_osm_l3,
+};
+
+static const struct qcom_icc_desc sm8150_icc_osm_l3 = {
+	.nodes = sm8150_osm_l3_nodes,
+	.num_nodes = ARRAY_SIZE(sm8150_osm_l3_nodes),
+	.lut_row_size = OSM_LUT_ROW_SIZE,
+	.reg_freq_lut = OSM_REG_FREQ_LUT,
+	.reg_perf_state = OSM_REG_PERF_STATE,
+};
+
+DEFINE_QNODE(sm8250_epss_apps_l3, SM8250_MASTER_EPSS_L3_APPS, 32, SM8250_SLAVE_EPSS_L3);
+DEFINE_QNODE(sm8250_epss_l3, SM8250_SLAVE_EPSS_L3, 32);
+
+static struct qcom_icc_node *sm8250_epss_l3_nodes[] = {
+	[MASTER_EPSS_L3_APPS] = &sm8250_epss_apps_l3,
+	[SLAVE_EPSS_L3_SHARED] = &sm8250_epss_l3,
+};
+
+static const struct qcom_icc_desc sm8250_icc_epss_l3 = {
+	.nodes = sm8250_epss_l3_nodes,
+	.num_nodes = ARRAY_SIZE(sm8250_epss_l3_nodes),
+	.lut_row_size = EPSS_LUT_ROW_SIZE,
+	.reg_freq_lut = EPSS_REG_FREQ_LUT,
+	.reg_perf_state = EPSS_REG_PERF_STATE,
 };
 
 static int qcom_icc_set(struct icc_node *src, struct icc_node *dst)
@@ -124,7 +173,7 @@ static int qcom_icc_set(struct icc_node *src, struct icc_node *dst)
 			break;
 	}
 
-	writel_relaxed(index, qp->base + REG_PERF_STATE);
+	writel_relaxed(index, qp->base + qp->reg_perf_state);
 
 	return 0;
 }
@@ -179,9 +228,15 @@ static int qcom_osm_l3_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
+	desc = device_get_match_data(&pdev->dev);
+	if (!desc)
+		return -EINVAL;
+
+	qp->reg_perf_state = desc->reg_perf_state;
+
 	for (i = 0; i < LUT_MAX_ENTRIES; i++) {
-		info = readl_relaxed(qp->base + REG_FREQ_LUT +
-				     i * LUT_ROW_SIZE);
+		info = readl_relaxed(qp->base + desc->reg_freq_lut +
+				     i * desc->lut_row_size);
 		src = FIELD_GET(LUT_SRC, info);
 		lval = FIELD_GET(LUT_L_VAL, info);
 		if (src)
@@ -199,10 +254,6 @@ static int qcom_osm_l3_probe(struct platform_device *pdev)
 		prev_freq = freq;
 	}
 	qp->max_state = i;
-
-	desc = device_get_match_data(&pdev->dev);
-	if (!desc)
-		return -EINVAL;
 
 	qnodes = desc->nodes;
 	num_nodes = desc->num_nodes;
@@ -258,6 +309,8 @@ err:
 static const struct of_device_id osm_l3_of_match[] = {
 	{ .compatible = "qcom,sc7180-osm-l3", .data = &sc7180_icc_osm_l3 },
 	{ .compatible = "qcom,sdm845-osm-l3", .data = &sdm845_icc_osm_l3 },
+	{ .compatible = "qcom,sm8150-osm-l3", .data = &sm8150_icc_osm_l3 },
+	{ .compatible = "qcom,sm8250-epss-l3", .data = &sm8250_icc_epss_l3 },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, osm_l3_of_match);
