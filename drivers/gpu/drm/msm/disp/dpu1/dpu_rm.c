@@ -10,6 +10,7 @@
 #include "dpu_hw_pingpong.h"
 #include "dpu_hw_intf.h"
 #include "dpu_hw_dspp.h"
+#include "dpu_hw_merge3d.h"
 #include "dpu_encoder.h"
 #include "dpu_trace.h"
 
@@ -119,6 +120,24 @@ int dpu_rm_init(struct dpu_rm *rm,
 		}
 	}
 
+	for (i = 0; i < cat->merge_3d_count; i++) {
+		struct dpu_hw_merge_3d *hw;
+		const struct dpu_merge_3d_cfg *merge_3d = &cat->merge_3d[i];
+
+		if (merge_3d->id < MERGE_3D_0 || merge_3d->id >= MERGE_3D_MAX) {
+			DPU_ERROR("skip merge_3d %d with invalid id\n", merge_3d->id);
+			continue;
+		}
+		hw = dpu_hw_merge_3d_init(merge_3d->id, mmio, cat);
+		if (IS_ERR_OR_NULL(hw)) {
+			rc = PTR_ERR(hw);
+			DPU_ERROR("failed merge_3d object creation: err %d\n",
+				rc);
+			goto fail;
+		}
+		rm->merge_3d_blks[merge_3d->id - MERGE_3D_0] = &hw->base;
+	}
+
 	for (i = 0; i < cat->pingpong_count; i++) {
 		struct dpu_hw_pingpong *hw;
 		const struct dpu_pingpong_cfg *pp = &cat->pingpong[i];
@@ -134,6 +153,8 @@ int dpu_rm_init(struct dpu_rm *rm,
 				rc);
 			goto fail;
 		}
+		if (pp->merge_3d && pp->merge_3d < MERGE_3D_MAX)
+			hw->merge_3d = rm->merge_3d_blks[pp->merge_3d - MERGE_3D_0];
 		rm->pingpong_blks[pp->id - PINGPONG_0] = &hw->base;
 	}
 
@@ -280,7 +301,7 @@ static bool _dpu_rm_check_lm_and_get_connected_blks(struct dpu_rm *rm,
 
 	idx = lm_cfg->dspp - DSPP_0;
 	if (idx < 0 || idx >= ARRAY_SIZE(rm->dspp_blks)) {
-		DPU_ERROR("failed to get dspp on lm %d\n", lm_cfg->dspp);
+		DPU_ERROR("failed to get dspp %d (%d) on lm %d\n", idx, lm_cfg->dspp, lm_cfg->id);
 		return false;
 	}
 
