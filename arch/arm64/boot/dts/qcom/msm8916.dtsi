@@ -6,6 +6,7 @@
 #include <dt-bindings/arm/coresight-cti-dt.h>
 #include <dt-bindings/interconnect/qcom,msm8916.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interconnect/qcom,msm8916.h>
 #include <dt-bindings/clock/qcom,gcc-msm8916.h>
 #include <dt-bindings/reset/qcom,gcc-msm8916.h>
 #include <dt-bindings/clock/qcom,rpmcc.h>
@@ -1144,7 +1145,7 @@
 		};
 
 
-		hexagon@4080000 {
+		mpss: remoteproc@4080000 {
 			compatible = "qcom,q6v5-pil";
 			reg = <0x04080000 0x100>,
 			      <0x04020000 0x040>;

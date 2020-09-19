@@ -223,10 +223,9 @@ struct wcn36xx {
 	spinlock_t		hal_ind_lock;
 	struct list_head	hal_ind_queue;
 
-	struct work_struct	scan_work;
 	struct cfg80211_scan_request *scan_req;
-	int			scan_freq;
-	int			scan_band;
+	bool			sw_scan;
+	u8			sw_scan_opchannel;
 	struct mutex		scan_lock;
 	bool			scan_aborted;
 
@@ -245,6 +244,7 @@ struct wcn36xx {
 	struct wcn36xx_dxe_mem_pool data_mem_pool;
 
 	struct sk_buff		*tx_ack_skb;
+	struct timer_list	tx_ack_timer;
 
 	/* RF module */
 	unsigned		rf_id;
