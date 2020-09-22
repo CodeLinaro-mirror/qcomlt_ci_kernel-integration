@@ -3036,6 +3036,7 @@ static const struct of_device_id wsa_macro_dt_match[] = {
 	{.compatible = "qcom,sm8250-lpass-wsa-macro"},
 	{}
 };
+MODULE_DEVICE_TABLE(of, wsa_macro_dt_match);
 
 #if 0
 static const struct dev_pm_ops bolero_dev_pm_ops = {
