@@ -265,6 +265,7 @@ static const struct of_device_id lpasscc_sm8250_clk_match_table[] = {
 	{ .compatible = "qcom,sm8250-audiocc" },
 	{ }
 };
+MODULE_DEVICE_TABLE(of, lpasscc_sm8250_clk_match_table);
 
 static struct platform_driver lpasscc_sm8250_clk_driver = {
 	.probe		= lpasscc_sm8250_clk_driver_probe,
@@ -273,4 +274,5 @@ static struct platform_driver lpasscc_sm8250_clk_driver = {
 		.of_match_table = lpasscc_sm8250_clk_match_table,
 	},
 };
-builtin_platform_driver(lpasscc_sm8250_clk_driver);
+module_platform_driver(lpasscc_sm8250_clk_driver);
+MODULE_LICENSE("GPL v2");
