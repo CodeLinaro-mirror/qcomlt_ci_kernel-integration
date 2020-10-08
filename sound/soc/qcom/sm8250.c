@@ -66,11 +66,15 @@ static int sm8250_snd_hw_params(struct snd_pcm_substream *substream,
 	struct sdw_stream_runtime *sruntime;
 	int i;
 
-	for_each_rtd_codec_dais(rtd, i, codec_dai) {
-		sruntime = snd_soc_dai_get_sdw_stream(codec_dai,
+	switch (cpu_dai->id) {
+	case WSA_CODEC_DMA_RX_0:
+		for_each_rtd_codec_dais(rtd, i, codec_dai) {
+			sruntime = snd_soc_dai_get_sdw_stream(codec_dai,
 						      substream->stream);
-		if (sruntime != ERR_PTR(-ENOTSUPP))
-			pdata->sruntime[cpu_dai->id] = sruntime;
+			if (sruntime != ERR_PTR(-ENOTSUPP))
+				pdata->sruntime[cpu_dai->id] = sruntime;
+		}
+		break;
 	}
 
 	return 0;
@@ -84,6 +88,9 @@ static int sm8250_snd_prepare(struct snd_pcm_substream *substream)
 	struct sm8250_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
 	struct sdw_stream_runtime *sruntime = data->sruntime[cpu_dai->id];
 	int ret;
+
+	if (cpu_dai->id != WSA_CODEC_DMA_RX_0)
+		return 0;
 
 	if (!sruntime)
 		return 0;
@@ -123,7 +130,8 @@ static int sm8250_snd_hw_free(struct snd_pcm_substream *substream)
 	struct snd_soc_dai *cpu_dai = asoc_rtd_to_cpu(rtd, 0);
 	struct sdw_stream_runtime *sruntime = data->sruntime[cpu_dai->id];
 
-	if (sruntime && data->stream_prepared[cpu_dai->id]) {
+	if (cpu_dai->id == WSA_CODEC_DMA_RX_0 && sruntime &&
+	    data->stream_prepared[cpu_dai->id]) {
 		sdw_disable_stream(sruntime);
 		sdw_deprepare_stream(sruntime);
 		data->stream_prepared[cpu_dai->id] = false;
