@@ -183,6 +183,7 @@ struct wsa_macro_priv {
 	struct clk *dcodec_vote;
 	struct clk *clk;
 	struct clk *npl_clk;
+	struct clk *fsgen_clk;
 	struct clk_hw hw;
 };
 #define to_wsa_macro(_hw) container_of(_hw, struct wsa_macro_priv, hw)
@@ -191,7 +192,8 @@ static int wsa_macro_config_ear_spkr_gain(struct snd_soc_component *component,
 					struct wsa_macro_priv *wsa_priv,
 					int event, int gain_reg);
 static struct snd_soc_dai_driver wsa_macro_dai[];
-static const DECLARE_TLV_DB_SCALE(digital_gain, 0, 1, 0);
+
+static const DECLARE_TLV_DB_SCALE(digital_gain, -8400, 100, -8400);
 
 static const char *const rx_text[] = {
 	"ZERO", "RX0", "RX1", "RX_MIX0", "RX_MIX1", "DEC0", "DEC1"
@@ -2619,6 +2621,11 @@ static int wsa_macro_probe(struct platform_device *pdev)
 	if (IS_ERR(wsa_priv->npl_clk))
 		return PTR_ERR(wsa_priv->npl_clk);
 
+	wsa_priv->fsgen_clk = devm_clk_get(dev, "fsgen");
+	if (IS_ERR(wsa_priv->fsgen_clk))
+		return PTR_ERR(wsa_priv->fsgen_clk);
+
+
 	clk_set_rate(wsa_priv->clk, 19200000);
 
 	clk_set_rate(wsa_priv->npl_clk, 19200000);
@@ -2647,6 +2654,7 @@ static int wsa_macro_probe(struct platform_device *pdev)
 	clk_prepare_enable(wsa_priv->clk);
 	clk_prepare_enable(wsa_priv->npl_clk);
 	clk_prepare_enable(c);
+	clk_prepare_enable(wsa_priv->fsgen_clk);
 
 	wsa_macro_register_mclk_output(wsa_priv);
 
