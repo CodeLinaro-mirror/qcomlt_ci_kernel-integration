@@ -1760,4 +1760,7 @@ config SND_SOC_TPA6130A2
 config SND_SOC_LPASS_WSA_MACRO
 	tristate "Qualcomm WSA Macro in LPASS(Low Power Audio SubSystem)"
 
+config SND_SOC_LPASS_VA_MACRO
+	tristate "Qualcomm VA Macro in LPASS(Low Power Audio SubSystem)"
+
 endmenu
