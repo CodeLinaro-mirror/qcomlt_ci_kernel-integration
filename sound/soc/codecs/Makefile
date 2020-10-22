@@ -103,6 +103,7 @@ snd-soc-lm4857-objs := lm4857.o
 snd-soc-lm49453-objs := lm49453.o
 snd-soc-lochnagar-sc-objs := lochnagar-sc.o
 snd-soc-lpass-wsa-macro-objs := lpass-wsa-macro.o
+snd-soc-lpass-va-macro-objs := lpass-va-macro.o
 snd-soc-madera-objs := madera.o
 snd-soc-max9759-objs := max9759.o
 snd-soc-max9768-objs := max9768.o
