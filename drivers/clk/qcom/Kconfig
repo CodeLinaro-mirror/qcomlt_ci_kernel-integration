@@ -502,4 +502,12 @@ config KRAITCC
 	  Support for the Krait CPU clocks on Qualcomm devices.
 	  Say Y if you want to support CPU frequency scaling.
 
+config GCC_SDX55
+	tristate "SDX55 Global Clock Controller"
+	depends on ARM
+	help
+	  Support for the global clock controller on SDX55 devices.
+	  Say Y if you want to use peripheral devices such as UART,
+	  SPI, I2C, USB, SD/UFS, PCIe etc.
+
 endif
