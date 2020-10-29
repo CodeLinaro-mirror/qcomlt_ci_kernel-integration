@@ -515,6 +515,7 @@ static unsigned long dsi_pll_7nm_vco_recalc_rate(struct clk_hw *hw,
 	u64 multiplier;
 	u32 frac;
 	u32 dec;
+	u32 outdiv;
 	u64 pll_freq, tmp64;
 
 	dec = pll_read(base + REG_DSI_7nm_PHY_PLL_DECIMAL_DIV_START_1);
@@ -525,6 +526,8 @@ static unsigned long dsi_pll_7nm_vco_recalc_rate(struct clk_hw *hw,
 		  0xff) << 8);
 	frac |= ((pll_read(base + REG_DSI_7nm_PHY_PLL_FRAC_DIV_START_HIGH_1) &
 		  0x3) << 16);
+
+	outdiv = 1 << (pll_read(base + REG_DSI_7nm_PHY_PLL_PLL_OUTDIV_RATE) & 0x3);
 
 	/*
 	 * TODO:
@@ -538,8 +541,8 @@ static unsigned long dsi_pll_7nm_vco_recalc_rate(struct clk_hw *hw,
 
 	vco_rate = pll_freq;
 
-	DBG("DSI PLL%d returning vco rate = %lu, dec = %x, frac = %x",
-	    pll_7nm->id, (unsigned long)vco_rate, dec, frac);
+	DBG("DSI PLL%d returning vco rate = %lu, dec = %x, frac = %x, outdiv = %x",
+	    pll_7nm->id, (unsigned long)vco_rate, dec, frac, outdiv);
 
 	return (unsigned long)vco_rate;
 }
@@ -585,6 +588,7 @@ static int dsi_pll_7nm_restore_state(struct msm_dsi_pll *pll)
 	struct pll_7nm_cached_state *cached = &pll_7nm->cached_state;
 	void __iomem *phy_base = pll_7nm->phy_cmn_mmio;
 	u32 val;
+	int ret;
 
 	val = pll_read(pll_7nm->mmio + REG_DSI_7nm_PHY_PLL_PLL_OUTDIV_RATE);
 	val &= ~0x3;
@@ -598,6 +602,13 @@ static int dsi_pll_7nm_restore_state(struct msm_dsi_pll *pll)
 	val &= ~0x3;
 	val |= cached->pll_mux;
 	pll_write(phy_base + REG_DSI_7nm_PHY_CMN_CLK_CFG1, val);
+
+	ret = dsi_pll_7nm_vco_set_rate(&pll->clk_hw, pll_7nm->vco_current_rate, pll_7nm->vco_ref_clk_rate);
+	if (ret) {
+		DRM_DEV_ERROR(&pll_7nm->pdev->dev,
+			"restore vco rate failed. ret=%d\n", ret);
+		return ret;
+	}
 
 	DBG("DSI PLL%d", pll_7nm->id);
 
