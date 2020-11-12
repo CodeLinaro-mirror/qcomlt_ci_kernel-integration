@@ -136,6 +136,12 @@
 			clock-frequency = <19200000>;
 		};
 
+		smem {
+			compatible = "qcom,smem";
+			memory-region = <&smem_mem>;
+			hwlocks = <&tcsr_mutex 3>;
+		};
+
 		gcc: clock-controller@100000 {
 			compatible = "qcom,gcc-sdx55";
 			reg = <0x100000 0x1f0000>;
