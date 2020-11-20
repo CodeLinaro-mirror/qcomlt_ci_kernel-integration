@@ -35,64 +35,62 @@
 		regulator-min-microvolt = <2850000>;
 		regulator-max-microvolt = <2850000>;
 	};
+};
 
-	soc {
-		serial@831000 {
-			status = "ok";
+&blsp1_uart3 {
+	status = "ok";
+};
+
+&sdhc_1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&sdc1_default_state &sdc1_card_det_n>;
+	vmmc-supply = <&vreg_sd_vdd>;
+	vqmmc-supply = <&vreg_vddpx_2>;
+	bus-width = <4>;
+	cd-gpios = <&tlmm 99 GPIO_ACTIVE_LOW>;
+	status = "ok";
+};
+
+&qpic_bam {
+	status = "ok";
+};
+
+
+&qpic_nand {
+	status = "ok";
+	nand@0 {
+		reg = <0>;
+
+		nand-ecc-strength = <4>;
+		nand-ecc-step-size = <512>;
+		nand-bus-width = <8>;
+	};
+};
+
+&tlmm {
+	sdc1_default_state: sdc1-default {
+		clk {
+			pins = "sdc1_clk";
+			bias-disable;
+			drive-strength = <16>;
 		};
 
-		sdhci@8804000 {
-			pinctrl-names = "default";
-			pinctrl-0 = <&sdc1_default_state &sdc1_card_det_n>;
-			vmmc-supply = <&vreg_sd_vdd>;
-			vqmmc-supply = <&vreg_vddpx_2>;
-			bus-width = <4>;
-			cd-gpios = <&tlmm 99 GPIO_ACTIVE_LOW>;
-			status = "ok";
+		cmd {
+			pins = "sdc1_cmd";
+			bias-pull-up;
+			drive-strength = <10>;
 		};
 
-		dma@1b04000 {
-			status = "ok";
+		data {
+			pins = "sdc1_data";
+			bias-pull-up;
+			drive-strength = <10>;
 		};
+	};
 
-		nand@1b30000 {
-			status = "ok";
-
-			nand@0 {
-				reg = <0>;
-
-				nand-ecc-strength = <4>;
-				nand-ecc-step-size = <512>;
-				nand-bus-width = <8>;
-			};
-		};
-
-		pinctrl@f100000 {
-			sdc1_default_state: sdc1-default {
-				clk {
-					pins = "sdc1_clk";
-					bias-disable;
-					drive-strength = <16>;
-				};
-
-				cmd {
-					pins = "sdc1_cmd";
-					bias-pull-up;
-					drive-strength = <10>;
-				};
-
-				data {
-					pins = "sdc1_data";
-					bias-pull-up;
-					drive-strength = <10>;
-				};
-			};
-
-			sdc1_card_det_n: sd-card-det-n {
-				pins = "gpio99";
-				function = "gpio";
-				bias-pull-up;
-			};
-		};
+	sdc1_card_det_n: sd-card-det-n {
+		pins = "gpio99";
+		function = "gpio";
+		bias-pull-up;
 	};
 };
