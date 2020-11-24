@@ -126,6 +126,9 @@ struct ov8856_mode {
 
 	/* Sensor register settings for this resolution */
 	const struct ov8856_reg_list reg_list;
+
+	/* MEDIA_BUS_FMT for this mode */
+	u32 code;
 };
 
 static const struct ov8856_reg mipi_data_rate_720mbps[] = {
@@ -942,6 +945,11 @@ static const char * const ov8856_test_pattern_menu[] = {
 	"Bottom-Top Darker Color Bar"
 };
 
+static const u32 ov8856_formats[] = {
+	MEDIA_BUS_FMT_SBGGR10_1X10,
+	MEDIA_BUS_FMT_SGRBG10_1X10,
+};
+
 static const s64 link_freq_menu_items[] = {
 	OV8856_LINK_FREQ_360MHZ,
 	OV8856_LINK_FREQ_180MHZ
@@ -974,6 +982,7 @@ static const struct ov8856_mode supported_modes[] = {
 			.regs = mode_3280x2464_regs,
 		},
 		.link_freq_index = OV8856_LINK_FREQ_720MBPS,
+		.code = MEDIA_BUS_FMT_SGRBG10_1X10,
 	},
 	{
 		.width = 3264,
@@ -986,6 +995,7 @@ static const struct ov8856_mode supported_modes[] = {
 			.regs = mode_3264x2448_regs,
 		},
 		.link_freq_index = OV8856_LINK_FREQ_720MBPS,
+		.code = MEDIA_BUS_FMT_SBGGR10_1X10,
 	},
 	{
 		.width = 1640,
@@ -998,6 +1008,7 @@ static const struct ov8856_mode supported_modes[] = {
 			.regs = mode_1640x1232_regs,
 		},
 		.link_freq_index = OV8856_LINK_FREQ_360MBPS,
+		.code = MEDIA_BUS_FMT_SGRBG10_1X10,
 	},
 	{
 		.width = 1632,
@@ -1010,6 +1021,7 @@ static const struct ov8856_mode supported_modes[] = {
 			.regs = mode_1632x1224_regs,
 		},
 		.link_freq_index = OV8856_LINK_FREQ_360MBPS,
+		.code = MEDIA_BUS_FMT_SBGGR10_1X10,
 	}
 };
 
@@ -1281,8 +1293,8 @@ static void ov8856_update_pad_format(const struct ov8856_mode *mode,
 {
 	fmt->width = mode->width;
 	fmt->height = mode->height;
-	fmt->code = MEDIA_BUS_FMT_SGRBG10_1X10;
 	fmt->field = V4L2_FIELD_NONE;
+	fmt->code = mode->code;
 }
 
 static int ov8856_start_streaming(struct ov8856 *ov8856)
@@ -1519,11 +1531,10 @@ static int ov8856_enum_mbus_code(struct v4l2_subdev *sd,
 				 struct v4l2_subdev_pad_config *cfg,
 				 struct v4l2_subdev_mbus_code_enum *code)
 {
-	/* Only one bayer order GRBG is supported */
-	if (code->index > 0)
+	if (code->index >= ARRAY_SIZE(ov8856_formats))
 		return -EINVAL;
 
-	code->code = MEDIA_BUS_FMT_SGRBG10_1X10;
+	code->code = ov8856_formats[code->index];
 
 	return 0;
 }
@@ -1532,10 +1543,11 @@ static int ov8856_enum_frame_size(struct v4l2_subdev *sd,
 				  struct v4l2_subdev_pad_config *cfg,
 				  struct v4l2_subdev_frame_size_enum *fse)
 {
-	if (fse->index >= ARRAY_SIZE(supported_modes))
+	if ((fse->code != ov8856_formats[0]) &&
+	    (fse->code != ov8856_formats[1]))
 		return -EINVAL;
 
-	if (fse->code != MEDIA_BUS_FMT_SGRBG10_1X10)
+	if (fse->index >= ARRAY_SIZE(supported_modes))
 		return -EINVAL;
 
 	fse->min_width = supported_modes[fse->index].width;
