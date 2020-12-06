@@ -1114,6 +1114,20 @@ static const struct venus_pm_ops pm_ops_v4 = {
 	.load_scale = load_scale_v4,
 };
 
+static const struct venus_pm_ops pm_ops_v6 = {
+	.core_get = core_get_v4,
+	.core_put = core_put_v4,
+	.core_power = core_power_v4,
+	.vdec_get = vdec_get_v4,
+	.vdec_put = vdec_put_v4,
+	.vdec_power = vdec_power_v4,
+	.venc_get = venc_get_v4,
+	.venc_put = venc_put_v4,
+	.venc_power = venc_power_v4,
+	.coreid_power = coreid_power_v4,
+	.load_scale = load_scale_v4,
+};
+
 const struct venus_pm_ops *venus_pm_get(enum hfi_version version)
 {
 	switch (version) {
@@ -1124,6 +1138,8 @@ const struct venus_pm_ops *venus_pm_get(enum hfi_version version)
 		return &pm_ops_v3;
 	case HFI_VERSION_4XX:
 		return &pm_ops_v4;
+	case HFI_VERSION_6XX:
+		return &pm_ops_v6;
 	}
 
 	return NULL;
