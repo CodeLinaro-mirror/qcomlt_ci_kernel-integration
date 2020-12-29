@@ -535,9 +535,14 @@ static int video_querycap(struct file *file, void *fh,
 	return 0;
 }
 
-static int video_enum_fmt(struct file *file, void *fh, struct v4l2_fmtdesc *f)
+/*
+ *  Returns the index in the video->formats[] array of the element which
+ *  has the "ndx"th unique value of pixelformat field.
+ *  If not found (no more unique pixelformat's) returns -EINVAL.
+ */
+static int video_get_unique_pixelformat_by_index(struct camss_video *video,
+						 int ndx)
 {
-	struct camss_video *video = video_drvdata(file);
 	int i, j, k;
 	u32 mcode = f->mbus_code;
 
@@ -575,11 +580,53 @@ static int video_enum_fmt(struct file *file, void *fh, struct v4l2_fmtdesc *f)
 		if (j == i)
 			k++;
 
-		if (k == f->index)
-			break;
+		if (k == ndx)
+			return i;
 	}
 
-	if (k < f->index)
+	return -EINVAL;
+}
+
+/*
+ *  Returns the index in the video->formats[] array of the element which
+ *  has code equal to mcode.
+ *  If not found returns -EINVAL.
+ */
+static int video_get_pixelformat_by_mbus_code(struct camss_video *video,
+					      u32 mcode)
+{
+	int i;
+
+	for (i = 0; i < video->nformats; i++) {
+		if (video->formats[i].code == mcode)
+			return i;
+	}
+
+	return -EINVAL;
+}
+
+static int video_enum_fmt(struct file *file, void *fh, struct v4l2_fmtdesc *f)
+{
+	struct camss_video *video = video_drvdata(file);
+	int i;
+
+	if (f->type != video->type)
+		return -EINVAL;
+
+	if (f->index >= video->nformats)
+		return -EINVAL;
+
+	if (f->mbus_code) {
+		/* Each entry in formats[] table has unique mbus_code */
+		if (f->index > 0)
+			return -EINVAL;
+
+		i = video_get_pixelformat_by_mbus_code(video, f->mbus_code);
+	} else {
+		i = video_get_unique_pixelformat_by_index(video, f->index);
+	}
+
+	if (i < 0)
 		/*
 		 * All the unique pixel formats matching the arguments
 		 * have been enumerated (k >= 0 and f->index > 0), or
