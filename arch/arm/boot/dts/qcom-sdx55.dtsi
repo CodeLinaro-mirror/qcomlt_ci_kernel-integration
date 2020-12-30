@@ -158,9 +158,9 @@
 			reg = <0x90000000 0x500000>;
 		};
 
-		mpss_adsp_mem: memory@90800000 {
+		mpss_adsp_mem: memory@90c00000 {
 			no-map;
-			reg = <0x90800000 0xf800000>;
+			reg = <0x90c00000 0xd400000>;
 		};
 	};
 
