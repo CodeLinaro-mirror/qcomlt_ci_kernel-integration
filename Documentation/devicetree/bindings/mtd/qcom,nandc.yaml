@@ -48,6 +48,13 @@ patternProperties:
         enum:
           - 512
 
+      qcom,secure-regions:
+        $ref: /schemas/types.yaml#/definitions/uint32-array
+        description:
+          Regions in the NAND memory which are protected using a secure element
+          like Trustzone. This property contains the start address and size of
+          the secure regions present (optional).
+
 allOf:
   - $ref: "nand-controller.yaml#"
 
