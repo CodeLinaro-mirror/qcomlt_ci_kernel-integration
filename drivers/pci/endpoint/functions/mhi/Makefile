@@ -5,4 +5,4 @@
 
 obj-$(CONFIG_PCI_EPF_MHI) += pci-epf-mhi.o
 
-pci-epf-mhi-y := main.o
+pci-epf-mhi-y := main.o mmio.o sm.o ring.o
