@@ -3404,8 +3404,7 @@ static const struct qmp_phy_cfg sm8150_usb3phy_cfg = {
 	.pwrdn_ctrl		= SW_PWRDN,
 	.phy_status		= PHYSTATUS,
 
-
-	.has_pwrdn_delay	= true,
+.has_pwrdn_delay	= true,
 	.pwrdn_delay_min	= POWER_DOWN_DELAY_US_MIN,
 	.pwrdn_delay_max	= POWER_DOWN_DELAY_US_MAX,
 
@@ -4564,6 +4563,8 @@ static int qcom_qmp_phy_power_on(struct phy *phy)
 			dev_err(qmp->dev, "phy initialization timed-out\n");
 			goto err_pcs_ready;
 		}
+
+		pr_info("PHY init complete: val: %d", val);
 	}
 	return 0;
 
