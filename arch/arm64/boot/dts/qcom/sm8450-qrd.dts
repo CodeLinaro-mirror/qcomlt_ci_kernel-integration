@@ -24,6 +24,10 @@
 	status = "okay";
 };
 
+&tlmm {
+	gpio-reserved-ranges = <28 4>, <36 4>;
+};
+
 &uart7 {
 	status = "okay";
 };
