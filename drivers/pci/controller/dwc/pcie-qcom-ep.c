@@ -506,6 +506,7 @@ static irqreturn_t qcom_pcie_ep_global_irq_thread(int irq, void *data)
 			val |= PARF_PM_CTRL_REQ_EXIT_L1;
 			writel_relaxed(val, pcie_ep->parf + PARF_PM_CTRL);
 		}
+		pci_epc_d_state_notify(pci->ep.epc, &dstate);
 	} else if (FIELD_GET(PARF_INT_ALL_LINK_UP, status)) {
 		dev_dbg(dev, "Received Linkup event. Enumeration complete!\n");
 		dw_pcie_ep_linkup(&pci->ep);
