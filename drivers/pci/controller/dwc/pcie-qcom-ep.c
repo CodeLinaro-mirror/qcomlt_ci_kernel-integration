@@ -499,6 +499,7 @@ static irqreturn_t qcom_pcie_ep_global_irq_thread(int irq, void *data)
 	} else if (FIELD_GET(PARF_INT_ALL_BME, status)) {
 		dev_dbg(dev, "Received BME event. Link is enabled!\n");
 		pcie_ep->link_status = QCOM_PCIE_EP_LINK_ENABLED;
+		pci_epc_bme_notify(pci->ep.epc);
 	} else if (FIELD_GET(PARF_INT_ALL_PM_TURNOFF, status)) {
 		dev_dbg(dev, "Received PM Turn-off event! Entering L23\n");
 		val = readl_relaxed(pcie_ep->parf + PARF_PM_CTRL);
@@ -513,6 +514,7 @@ static irqreturn_t qcom_pcie_ep_global_irq_thread(int irq, void *data)
 			val |= PARF_PM_CTRL_REQ_EXIT_L1;
 			writel_relaxed(val, pcie_ep->parf + PARF_PM_CTRL);
 		}
+		pci_epc_d_state_notify(pci->ep.epc, &dstate);
 	} else if (FIELD_GET(PARF_INT_ALL_LINK_UP, status)) {
 		dev_dbg(dev, "Received Linkup event. Enumeration complete!\n");
 		dw_pcie_ep_linkup(&pci->ep);
@@ -696,7 +698,6 @@ static int qcom_pcie_ep_remove(struct platform_device *pdev)
 	phy_exit(pcie_ep->phy);
 	clk_bulk_disable_unprepare(ARRAY_SIZE(qcom_pcie_ep_clks),
 				   qcom_pcie_ep_clks);
-
 	return 0;
 }
 
