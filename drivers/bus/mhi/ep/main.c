@@ -18,6 +18,47 @@
 
 static DEFINE_IDA(mhi_ep_cntrl_ida);
 
+static void mhi_ep_ring_worker(struct work_struct *work)
+{
+	struct mhi_ep_cntrl *mhi_cntrl = container_of(work,
+				struct mhi_ep_cntrl, ring_work);
+	struct device *dev = &mhi_cntrl->mhi_dev->dev;
+	struct mhi_ep_ring_item *itr, *tmp;
+	struct mhi_ep_ring *ring;
+	struct mhi_ep_chan *chan;
+	unsigned long flags;
+	LIST_HEAD(head);
+	int ret;
+
+	/* Process the command ring first */
+	ret = mhi_ep_process_ring(&mhi_cntrl->mhi_cmd->ring);
+	if (ret) {
+		dev_err(dev, "Error processing command ring\n");
+		return;
+	}
+
+	spin_lock_irqsave(&mhi_cntrl->list_lock, flags);
+	list_splice_tail_init(&mhi_cntrl->ch_db_list, &head);
+	spin_unlock_irqrestore(&mhi_cntrl->list_lock, flags);
+
+	/* Process the channel rings now */
+	list_for_each_entry_safe(itr, tmp, &head, node) {
+		list_del(&itr->node);
+		ring = itr->ring;
+		chan = &mhi_cntrl->mhi_chan[ring->ch_id];
+		mutex_lock(&chan->lock);
+		dev_dbg(dev, "Processing the ring for channel (%d)\n", ring->ch_id);
+		ret = mhi_ep_process_ring(ring);
+		if (ret) {
+			dev_err(dev, "Error processing ring for channel (%d)\n", ring->ch_id);
+			mutex_unlock(&chan->lock);
+			return;
+		}
+		mutex_unlock(&chan->lock);
+		kfree(itr);
+	}
+}
+
 static void mhi_ep_release_device(struct device *dev)
 {
 	struct mhi_ep_device *mhi_dev = to_mhi_ep_device(dev);
@@ -218,6 +259,17 @@ int mhi_ep_register_controller(struct mhi_ep_cntrl *mhi_cntrl,
 		goto err_free_ch;
 	}
 
+	INIT_WORK(&mhi_cntrl->ring_work, mhi_ep_ring_worker);
+
+	mhi_cntrl->ring_wq = alloc_workqueue("mhi_ep_ring_wq", 0, 0);
+	if (!mhi_cntrl->ring_wq) {
+		ret = -ENOMEM;
+		goto err_free_cmd;
+	}
+
+	INIT_LIST_HEAD(&mhi_cntrl->ch_db_list);
+	spin_lock_init(&mhi_cntrl->list_lock);
+
 	/* Set MHI version and AMSS EE before enumeration */
 	mhi_ep_mmio_write(mhi_cntrl, MHIVER, config->mhi_version);
 	mhi_ep_mmio_set_env(mhi_cntrl, MHI_EP_AMSS_EE);
@@ -226,7 +278,7 @@ int mhi_ep_register_controller(struct mhi_ep_cntrl *mhi_cntrl,
 	mhi_cntrl->index = ida_alloc(&mhi_ep_cntrl_ida, GFP_KERNEL);
 	if (mhi_cntrl->index < 0) {
 		ret = mhi_cntrl->index;
-		goto err_free_cmd;
+		goto err_destroy_ring_wq;
 	}
 
 	/* Allocate the controller device */
@@ -254,6 +306,8 @@ err_put_dev:
 	put_device(&mhi_dev->dev);
 err_ida_free:
 	ida_free(&mhi_ep_cntrl_ida, mhi_cntrl->index);
+err_destroy_ring_wq:
+	destroy_workqueue(mhi_cntrl->ring_wq);
 err_free_cmd:
 	kfree(mhi_cntrl->mhi_cmd);
 err_free_ch:
@@ -266,6 +320,8 @@ EXPORT_SYMBOL_GPL(mhi_ep_register_controller);
 void mhi_ep_unregister_controller(struct mhi_ep_cntrl *mhi_cntrl)
 {
 	struct mhi_ep_device *mhi_dev = mhi_cntrl->mhi_dev;
+
+	destroy_workqueue(mhi_cntrl->ring_wq);
 
 	kfree(mhi_cntrl->mhi_cmd);
 	kfree(mhi_cntrl->mhi_chan);
