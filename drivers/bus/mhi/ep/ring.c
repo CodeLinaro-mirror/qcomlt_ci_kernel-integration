@@ -264,9 +264,11 @@ void mhi_ep_ring_init(struct mhi_ep_ring *ring, enum mhi_ep_ring_type type, u32 
 	ring->state = RING_STATE_UINT;
 	ring->type = type;
 	if (ring->type == RING_TYPE_CMD) {
+		ring->ring_cb = mhi_ep_process_cmd_ring;
 		ring->db_offset_h = CRDB_HIGHER;
 		ring->db_offset_l = CRDB_LOWER;
 	} else if (ring->type == RING_TYPE_CH) {
+		ring->ring_cb = mhi_ep_process_tre_ring;
 		ring->db_offset_h = CHDB_HIGHER_n(id);
 		ring->db_offset_l = CHDB_LOWER_n(id);
 		ring->ch_id = id;
