@@ -18,6 +18,42 @@
 
 static DEFINE_IDA(mhi_ep_cntrl_ida);
 
+static void mhi_ep_ring_worker(struct work_struct *work)
+{
+	struct mhi_ep_cntrl *mhi_cntrl = container_of(work,
+				struct mhi_ep_cntrl, ring_work);
+	struct device *dev = &mhi_cntrl->mhi_dev->dev;
+	struct mhi_ep_ring *ring;
+	struct list_head *cp, *q;
+	unsigned long flags;
+	int ret = 0;
+
+	/* Process the command ring first */
+	ret = mhi_ep_process_ring(&mhi_cntrl->mhi_cmd->ring);
+	if (ret) {
+		dev_err(dev, "Error processing command ring\n");
+		goto err_unlock;
+	}
+
+	spin_lock_irqsave(&mhi_cntrl->list_lock, flags);
+	/* Process the channel rings now */
+	list_for_each_safe(cp, q, &mhi_cntrl->ch_db_list) {
+		ring = list_entry(cp, struct mhi_ep_ring, list);
+		list_del(cp);
+		ret = mhi_ep_process_ring(ring);
+		if (ret) {
+			dev_err(dev, "Error processing channel ring: %d\n", ring->ch_id);
+			goto err_unlock;
+		}
+
+		/* Re-enable channel interrupt */
+		mhi_ep_mmio_enable_chdb_a7(mhi_cntrl, ring->ch_id);
+	}
+
+err_unlock:
+	spin_unlock_irqrestore(&mhi_cntrl->list_lock, flags);
+}
+
 static void mhi_ep_release_device(struct device *dev)
 {
 	struct mhi_ep_device *mhi_dev = to_mhi_ep_device(dev);
@@ -222,6 +258,17 @@ int mhi_ep_register_controller(struct mhi_ep_cntrl *mhi_cntrl,
 		goto err_free_ch;
 	}
 
+	INIT_WORK(&mhi_cntrl->ring_work, mhi_ep_ring_worker);
+
+	mhi_cntrl->ring_wq = alloc_ordered_workqueue("mhi_ep_ring_wq", WQ_HIGHPRI);
+	if (!mhi_cntrl->ring_wq) {
+		ret = -ENOMEM;
+		goto err_free_cmd;
+	}
+
+	INIT_LIST_HEAD(&mhi_cntrl->ch_db_list);
+	spin_lock_init(&mhi_cntrl->list_lock);
+
 	/* Set MHI version and AMSS EE before enumeration */
 	mhi_ep_mmio_write(mhi_cntrl, MHIVER, config->mhi_version);
 	mhi_ep_mmio_set_env(mhi_cntrl, MHI_EP_AMSS_EE);
@@ -230,7 +277,7 @@ int mhi_ep_register_controller(struct mhi_ep_cntrl *mhi_cntrl,
 	mhi_cntrl->index = ida_alloc(&mhi_ep_cntrl_ida, GFP_KERNEL);
 	if (mhi_cntrl->index < 0) {
 		ret = mhi_cntrl->index;
-		goto err_free_cmd;
+		goto err_destroy_ring_wq;
 	}
 
 	/* Allocate the controller device */
@@ -259,6 +306,8 @@ err_release_dev:
 	put_device(&mhi_dev->dev);
 err_ida_free:
 	ida_free(&mhi_ep_cntrl_ida, mhi_cntrl->index);
+err_destroy_ring_wq:
+	destroy_workqueue(mhi_cntrl->ring_wq);
 err_free_cmd:
 	kfree(mhi_cntrl->mhi_cmd);
 err_free_ch:
@@ -271,6 +320,8 @@ EXPORT_SYMBOL_GPL(mhi_ep_register_controller);
 void mhi_ep_unregister_controller(struct mhi_ep_cntrl *mhi_cntrl)
 {
 	struct mhi_ep_device *mhi_dev = mhi_cntrl->mhi_dev;
+
+	destroy_workqueue(mhi_cntrl->ring_wq);
 
 	kfree(mhi_cntrl->mhi_cmd);
 	kfree(mhi_cntrl->mhi_chan);
