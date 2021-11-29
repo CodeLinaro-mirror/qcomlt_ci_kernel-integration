@@ -97,6 +97,18 @@ enum mhi_ep_execenv {
 	MHI_EP_UNRESERVED
 };
 
+/* Transfer Ring Element macros */
+#define MHI_EP_TRE_PTR(ptr) (ptr)
+#define MHI_EP_TRE_DWORD0(len) (len & MHI_MAX_MTU)
+#define MHI_EP_TRE_DWORD1(bei, ieot, ieob, chain) ((2 << 16) | (bei << 10) \
+	| (ieot << 9) | (ieob << 8) | chain)
+#define MHI_EP_TRE_GET_PTR(tre) ((tre)->ptr)
+#define MHI_EP_TRE_GET_LEN(tre) ((tre)->dword[0] & 0xffff)
+#define MHI_EP_TRE_GET_CHAIN(tre) FIELD_GET(BIT(0), (tre)->dword[1])
+#define MHI_EP_TRE_GET_IEOB(tre) FIELD_GET(BIT(8), (tre)->dword[1])
+#define MHI_EP_TRE_GET_IEOT(tre) FIELD_GET(BIT(9), (tre)->dword[1])
+#define MHI_EP_TRE_GET_BEI(tre) FIELD_GET(BIT(10), (tre)->dword[1])
+
 enum mhi_ep_ring_state {
 	RING_STATE_UINT = 0,
 	RING_STATE_IDLE,
@@ -160,6 +172,17 @@ struct mhi_ep_chan {
 	u32 chan;
 	bool skip_td;
 };
+
+/* MHI Ring related functions */
+void mhi_ep_ring_init(struct mhi_ep_ring *ring, enum mhi_ep_ring_type type, u32 id);
+void mhi_ep_ring_stop(struct mhi_ep_cntrl *mhi_cntrl, struct mhi_ep_ring *ring);
+size_t mhi_ep_ring_addr2offset(struct mhi_ep_ring *ring, u64 ptr);
+int mhi_ep_ring_start(struct mhi_ep_cntrl *mhi_cntrl, struct mhi_ep_ring *ring,
+		      union mhi_ep_ring_ctx *ctx);
+int mhi_ep_process_ring(struct mhi_ep_ring *ring);
+int mhi_ep_ring_add_element(struct mhi_ep_ring *ring, struct mhi_ep_ring_element *element,
+			    int evt_offset);
+void mhi_ep_ring_inc_index(struct mhi_ep_ring *ring);
 
 /* MMIO related functions */
 void mhi_ep_mmio_read(struct mhi_ep_cntrl *mhi_cntrl, u32 offset, u32 *regval);
