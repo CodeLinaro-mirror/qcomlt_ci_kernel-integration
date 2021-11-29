@@ -59,9 +59,18 @@ struct mhi_ep_db_info {
  * @mhi_event: Points to the event ring configurations table
  * @mhi_cmd: Points to the command ring configurations table
  * @sm: MHI Endpoint state machine
+ * @ch_ctx_cache: Cache of host channel context data structure
+ * @ev_ctx_cache: Cache of host event context data structure
+ * @cmd_ctx_cache: Cache of host command context data structure
  * @ch_ctx_host_pa: Physical address of host channel context data structure
  * @ev_ctx_host_pa: Physical address of host event context data structure
  * @cmd_ctx_host_pa: Physical address of host command context data structure
+ * @ch_ctx_cache_phys: Physical address of the host channel context cache
+ * @ev_ctx_cache_phys: Physical address of the host event context cache
+ * @cmd_ctx_cache_phys: Physical address of the host command context cache
+ * @ch_ctx_host_size: Size of the host channel context data structure
+ * @ev_ctx_host_size: Size of the host event context data structure
+ * @cmd_ctx_host_size: Size of the host command context data structure
  * @state_wq: Dedicated workqueue for handling MHI state transitions
  * @ring_wq: Dedicated workqueue for processing MHI rings
  * @state_work: State transition worker
@@ -85,6 +94,7 @@ struct mhi_ep_db_info {
  * @erdb_offset: Event ring doorbell offset set by the host
  * @index: MHI Endpoint controller index
  * @irq: IRQ used by the endpoint controller
+ * @is_enabled: Check if the endpoint controller is enabled or not
  */
 struct mhi_ep_cntrl {
 	struct device *cntrl_dev;
@@ -96,9 +106,18 @@ struct mhi_ep_cntrl {
 	struct mhi_ep_cmd *mhi_cmd;
 	struct mhi_ep_sm *sm;
 
+	struct mhi_chan_ctxt *ch_ctx_cache;
+	struct mhi_event_ctxt *ev_ctx_cache;
+	struct mhi_cmd_ctxt *cmd_ctx_cache;
 	u64 ch_ctx_host_pa;
 	u64 ev_ctx_host_pa;
 	u64 cmd_ctx_host_pa;
+	phys_addr_t ch_ctx_cache_phys;
+	phys_addr_t ev_ctx_cache_phys;
+	phys_addr_t cmd_ctx_cache_phys;
+	size_t ch_ctx_host_size;
+	size_t ev_ctx_host_size;
+	size_t cmd_ctx_host_size;
 
 	struct workqueue_struct *state_wq;
 	struct workqueue_struct	*ring_wq;
@@ -131,6 +150,7 @@ struct mhi_ep_cntrl {
 	u32 erdb_offset;
 	int index;
 	int irq;
+	bool is_enabled;
 };
 
 /**
@@ -228,5 +248,13 @@ int mhi_ep_register_controller(struct mhi_ep_cntrl *mhi_cntrl,
  * @mhi_cntrl: MHI Endpoint controller to unregister
  */
 void mhi_ep_unregister_controller(struct mhi_ep_cntrl *mhi_cntrl);
+
+/**
+ * mhi_ep_power_up - Power up the MHI endpoint stack
+ * @mhi_cntrl: MHI Endpoint controller
+ *
+ * Return: 0 if power up succeeds, a negative error code otherwise.
+ */
+int mhi_ep_power_up(struct mhi_ep_cntrl *mhi_cntrl);
 
 #endif
