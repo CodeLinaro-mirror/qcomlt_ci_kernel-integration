@@ -522,6 +522,138 @@ err_unlock:
 	return ret;
 }
 
+static void skip_to_next_td(struct mhi_ep_chan *mhi_chan, struct mhi_ep_ring *ring)
+{
+	struct mhi_ep_ring_element *el;
+	u32 td_boundary_reached = 0;
+
+	mhi_chan->skip_td = 1;
+	el = &ring->ring_cache[ring->rd_offset];
+	while (ring->rd_offset != ring->wr_offset) {
+		if (td_boundary_reached) {
+			mhi_chan->skip_td = 0;
+			break;
+		}
+
+		if (!MHI_EP_TRE_GET_CHAIN(el))
+			td_boundary_reached = 1;
+
+		mhi_ep_ring_inc_index(ring);
+		el = &ring->ring_cache[ring->rd_offset];
+	}
+}
+
+int mhi_ep_queue_skb(struct mhi_ep_device *mhi_dev, enum dma_data_direction dir,
+		     struct sk_buff *skb, size_t len, enum mhi_flags mflags)
+{
+	struct mhi_ep_chan *mhi_chan = (dir == DMA_FROM_DEVICE) ? mhi_dev->dl_chan :
+							       mhi_dev->ul_chan;
+	struct mhi_ep_cntrl *mhi_cntrl = mhi_dev->mhi_cntrl;
+	enum mhi_ev_ccs code = MHI_EV_CC_INVALID;
+	struct mhi_ep_ring_element *el;
+	u64 write_to_loc, skip_tre = 0;
+	struct mhi_ep_ring *ring;
+	size_t bytes_to_write;
+	void __iomem *tre_buf;
+	phys_addr_t tre_phys;
+	void *read_from_loc;
+	u32 buf_remaining;
+	u32 tre_len;
+	int ret = 0;
+
+	if (dir == DMA_TO_DEVICE)
+		return -EINVAL;
+
+	buf_remaining = len;
+	ring = &mhi_cntrl->mhi_chan[mhi_chan->chan].ring;
+
+	mutex_lock(&mhi_chan->lock);
+	if (mhi_chan->skip_td)
+		skip_to_next_td(mhi_chan, ring);
+
+	do {
+		/* Don't process the transfer ring if the channel is not in RUNNING state */
+		if (mhi_chan->state != MHI_CH_STATE_RUNNING) {
+			dev_err(&mhi_chan->mhi_dev->dev, "Channel not available");
+			ret = -ENODEV;
+			goto err_exit;
+		}
+
+		if (mhi_ep_queue_is_empty(mhi_dev, dir)) {
+			dev_err(&mhi_chan->mhi_dev->dev, "TRE not available!\n");
+			ret = -EINVAL;
+			goto err_exit;
+		}
+
+		el = &ring->ring_cache[ring->rd_offset];
+		tre_len = MHI_EP_TRE_GET_LEN(el);
+		if (skb->len > tre_len) {
+			dev_err(&mhi_chan->mhi_dev->dev, "Buffer size (%d) is too large!\n",
+				skb->len);
+			ret = -ENOMEM;
+			goto err_exit;
+		}
+
+		bytes_to_write = min(buf_remaining, tre_len);
+		read_from_loc = skb->data;
+		write_to_loc = MHI_EP_TRE_GET_PTR(el);
+
+		tre_buf = mhi_cntrl->alloc_addr(mhi_cntrl, &tre_phys, bytes_to_write);
+		if (!tre_buf) {
+			dev_err(&mhi_chan->mhi_dev->dev, "Failed to allocate TRE buffer\n");
+			ret = -ENOMEM;
+			goto err_exit;
+		}
+
+		ret = mhi_cntrl->map_addr(mhi_cntrl, tre_phys, write_to_loc, bytes_to_write);
+		if (ret) {
+			dev_err(&mhi_chan->mhi_dev->dev, "Failed to map TRE buffer\n");
+			goto err_tre_free;
+		}
+
+		dev_dbg(&mhi_chan->mhi_dev->dev, "Writing %d bytes", bytes_to_write);
+		memcpy_toio(tre_buf, read_from_loc, bytes_to_write);
+
+		mhi_cntrl->unmap_addr(mhi_cntrl, tre_phys);
+		mhi_cntrl->free_addr(mhi_cntrl, tre_phys, tre_buf, bytes_to_write);
+
+		buf_remaining -= bytes_to_write;
+		if (buf_remaining) {
+			if (!MHI_EP_TRE_GET_CHAIN(el))
+				code = MHI_EV_CC_OVERFLOW;
+			else if (MHI_EP_TRE_GET_IEOB(el))
+				code = MHI_EV_CC_EOB;
+		} else {
+			if (MHI_EP_TRE_GET_CHAIN(el))
+				skip_tre = 1;
+			code = MHI_EV_CC_EOT;
+		}
+
+		ret = mhi_ep_send_completion_event(mhi_cntrl, ring, bytes_to_write, code);
+		if (ret) {
+			dev_err(&mhi_chan->mhi_dev->dev, "Error sending completion event");
+			goto err_exit;
+		}
+
+		mhi_ep_ring_inc_index(ring);
+	} while (!skip_tre && buf_remaining);
+
+	if (skip_tre)
+		skip_to_next_td(mhi_chan, ring);
+
+	mutex_unlock(&mhi_chan->lock);
+
+	return 0;
+
+err_tre_free:
+	mhi_cntrl->free_addr(mhi_cntrl, tre_phys, tre_buf, bytes_to_write);
+err_exit:
+	mutex_unlock(&mhi_chan->lock);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(mhi_ep_queue_skb);
+
 static int mhi_ep_cache_host_cfg(struct mhi_ep_cntrl *mhi_cntrl)
 {
 	struct device *dev = &mhi_cntrl->mhi_dev->dev;
