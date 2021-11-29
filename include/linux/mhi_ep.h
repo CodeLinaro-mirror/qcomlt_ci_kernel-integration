@@ -94,6 +94,7 @@ struct mhi_ep_db_info {
  * @erdb_offset: Event ring doorbell offset set by the host
  * @index: MHI Endpoint controller index
  * @irq: IRQ used by the endpoint controller
+ * @is_enabled: Check if the endpoint controller is enabled or not
  */
 struct mhi_ep_cntrl {
 	struct device *cntrl_dev;
@@ -149,6 +150,7 @@ struct mhi_ep_cntrl {
 	u32 erdb_offset;
 	int index;
 	int irq;
+	bool is_enabled;
 };
 
 /**
@@ -246,5 +248,13 @@ int mhi_ep_register_controller(struct mhi_ep_cntrl *mhi_cntrl,
  * @mhi_cntrl: MHI Endpoint controller to unregister
  */
 void mhi_ep_unregister_controller(struct mhi_ep_cntrl *mhi_cntrl);
+
+/**
+ * mhi_ep_power_up - Power up the MHI endpoint stack
+ * @mhi_cntrl: MHI Endpoint controller
+ *
+ * Return: 0 if power up succeeds, a negative error code otherwise.
+ */
+int mhi_ep_power_up(struct mhi_ep_cntrl *mhi_cntrl);
 
 #endif

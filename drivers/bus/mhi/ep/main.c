@@ -16,6 +16,9 @@
 #include <linux/module.h>
 #include "internal.h"
 
+#define MHI_SUSPEND_MIN			100
+#define MHI_SUSPEND_TIMEOUT		600
+
 static DEFINE_IDA(mhi_ep_cntrl_ida);
 
 static int mhi_ep_send_event(struct mhi_ep_cntrl *mhi_cntrl, u32 event_ring,
@@ -141,6 +144,175 @@ static int mhi_ep_send_cmd_comp_event(struct mhi_ep_cntrl *mhi_cntrl, enum mhi_e
 	event.dword[1] = tmp;
 
 	return mhi_ep_send_event(mhi_cntrl, 0, &event);
+}
+
+static int mhi_ep_cache_host_cfg(struct mhi_ep_cntrl *mhi_cntrl)
+{
+	struct device *dev = &mhi_cntrl->mhi_dev->dev;
+	int ret;
+
+	/* Update the number of event rings (NER) programmed by the host */
+	mhi_ep_mmio_update_ner(mhi_cntrl);
+
+	dev_dbg(dev, "Number of Event rings: %d, HW Event rings: %d\n",
+		 mhi_cntrl->event_rings, mhi_cntrl->hw_event_rings);
+
+	mhi_cntrl->ch_ctx_host_size = sizeof(struct mhi_chan_ctxt) *
+					mhi_cntrl->max_chan;
+	mhi_cntrl->ev_ctx_host_size = sizeof(struct mhi_event_ctxt) *
+					mhi_cntrl->event_rings;
+	mhi_cntrl->cmd_ctx_host_size = sizeof(struct mhi_cmd_ctxt);
+
+	/* Get the channel context base pointer from host */
+	mhi_ep_mmio_get_chc_base(mhi_cntrl);
+
+	/* Allocate memory for caching host channel context */
+	mhi_cntrl->ch_ctx_cache = mhi_cntrl->alloc_addr(mhi_cntrl, &mhi_cntrl->ch_ctx_cache_phys,
+							mhi_cntrl->ch_ctx_host_size);
+	if (!mhi_cntrl->ch_ctx_cache) {
+		dev_err(dev, "Failed to allocate ch_ctx_cache memory\n");
+		return -ENOMEM;
+	}
+
+	/* Map the host channel context */
+	ret = mhi_cntrl->map_addr(mhi_cntrl, mhi_cntrl->ch_ctx_cache_phys,
+				  mhi_cntrl->ch_ctx_host_pa, mhi_cntrl->ch_ctx_host_size);
+	if (ret) {
+		dev_err(dev, "Failed to map ch_ctx_cache\n");
+		goto err_ch_ctx;
+	}
+
+	/* Get the event context base pointer from host */
+	mhi_ep_mmio_get_erc_base(mhi_cntrl);
+
+	/* Allocate memory for caching host event context */
+	mhi_cntrl->ev_ctx_cache = mhi_cntrl->alloc_addr(mhi_cntrl, &mhi_cntrl->ev_ctx_cache_phys,
+							mhi_cntrl->ev_ctx_host_size);
+	if (!mhi_cntrl->ev_ctx_cache) {
+		dev_err(dev, "Failed to allocate ev_ctx_cache memory\n");
+		ret = -ENOMEM;
+		goto err_ch_ctx_map;
+	}
+
+	/* Map the host event context */
+	ret = mhi_cntrl->map_addr(mhi_cntrl, mhi_cntrl->ev_ctx_cache_phys,
+				  mhi_cntrl->ev_ctx_host_pa, mhi_cntrl->ev_ctx_host_size);
+	if (ret) {
+		dev_err(dev, "Failed to map ev_ctx_cache\n");
+		goto err_ev_ctx;
+	}
+
+	/* Get the command context base pointer from host */
+	mhi_ep_mmio_get_crc_base(mhi_cntrl);
+
+	/* Allocate memory for caching host command context */
+	mhi_cntrl->cmd_ctx_cache = mhi_cntrl->alloc_addr(mhi_cntrl, &mhi_cntrl->cmd_ctx_cache_phys,
+							 mhi_cntrl->cmd_ctx_host_size);
+	if (!mhi_cntrl->cmd_ctx_cache) {
+		dev_err(dev, "Failed to allocate cmd_ctx_cache memory\n");
+		ret = -ENOMEM;
+		goto err_ev_ctx_map;
+	}
+
+	/* Map the host command context */
+	ret = mhi_cntrl->map_addr(mhi_cntrl, mhi_cntrl->cmd_ctx_cache_phys,
+				  mhi_cntrl->cmd_ctx_host_pa, mhi_cntrl->cmd_ctx_host_size);
+	if (ret) {
+		dev_err(dev, "Failed to map cmd_ctx_cache\n");
+		goto err_cmd_ctx;
+	}
+
+	/* Initialize command ring */
+	ret = mhi_ep_ring_start(mhi_cntrl, &mhi_cntrl->mhi_cmd->ring,
+				(union mhi_ep_ring_ctx *)mhi_cntrl->cmd_ctx_cache);
+	if (ret) {
+		dev_err(dev, "Failed to start the command ring\n");
+		goto err_cmd_ctx_map;
+	}
+
+	return ret;
+
+err_cmd_ctx_map:
+	mhi_cntrl->unmap_addr(mhi_cntrl, mhi_cntrl->cmd_ctx_cache_phys);
+
+err_cmd_ctx:
+	mhi_cntrl->free_addr(mhi_cntrl, mhi_cntrl->cmd_ctx_cache_phys,
+			     mhi_cntrl->cmd_ctx_cache, mhi_cntrl->cmd_ctx_host_size);
+
+err_ev_ctx_map:
+	mhi_cntrl->unmap_addr(mhi_cntrl, mhi_cntrl->ev_ctx_cache_phys);
+
+err_ev_ctx:
+	mhi_cntrl->free_addr(mhi_cntrl, mhi_cntrl->ev_ctx_cache_phys,
+			     mhi_cntrl->ev_ctx_cache, mhi_cntrl->ev_ctx_host_size);
+
+err_ch_ctx_map:
+	mhi_cntrl->unmap_addr(mhi_cntrl, mhi_cntrl->ch_ctx_cache_phys);
+
+err_ch_ctx:
+	mhi_cntrl->free_addr(mhi_cntrl, mhi_cntrl->ch_ctx_cache_phys,
+			     mhi_cntrl->ch_ctx_cache, mhi_cntrl->ch_ctx_host_size);
+
+	return ret;
+}
+
+static void mhi_ep_free_host_cfg(struct mhi_ep_cntrl *mhi_cntrl)
+{
+	mhi_cntrl->unmap_addr(mhi_cntrl, mhi_cntrl->cmd_ctx_cache_phys);
+	mhi_cntrl->free_addr(mhi_cntrl, mhi_cntrl->cmd_ctx_cache_phys,
+			     mhi_cntrl->cmd_ctx_cache, mhi_cntrl->cmd_ctx_host_size);
+	mhi_cntrl->unmap_addr(mhi_cntrl, mhi_cntrl->ev_ctx_cache_phys);
+	mhi_cntrl->free_addr(mhi_cntrl, mhi_cntrl->ev_ctx_cache_phys,
+			     mhi_cntrl->ev_ctx_cache, mhi_cntrl->ev_ctx_host_size);
+	mhi_cntrl->unmap_addr(mhi_cntrl, mhi_cntrl->ch_ctx_cache_phys);
+	mhi_cntrl->free_addr(mhi_cntrl, mhi_cntrl->ch_ctx_cache_phys,
+			     mhi_cntrl->ch_ctx_cache, mhi_cntrl->ch_ctx_host_size);
+}
+
+static void mhi_ep_enable_int(struct mhi_ep_cntrl *mhi_cntrl)
+{
+	mhi_ep_mmio_enable_chdb_interrupts(mhi_cntrl);
+	mhi_ep_mmio_enable_ctrl_interrupt(mhi_cntrl);
+	mhi_ep_mmio_enable_cmdb_interrupt(mhi_cntrl);
+}
+
+static int mhi_ep_enable(struct mhi_ep_cntrl *mhi_cntrl)
+{
+	struct device *dev = &mhi_cntrl->mhi_dev->dev;
+	enum mhi_state state;
+	u32 max_cnt = 0;
+	bool mhi_reset;
+	int ret;
+
+	/* Wait for Host to set the M0 state */
+	do {
+		msleep(MHI_SUSPEND_MIN);
+		mhi_ep_mmio_get_mhi_state(mhi_cntrl, &state, &mhi_reset);
+		if (mhi_reset) {
+			/* Clear the MHI reset if host is in reset state */
+			mhi_ep_mmio_clear_reset(mhi_cntrl);
+			dev_dbg(dev, "Host initiated reset while waiting for M0\n");
+		}
+		max_cnt++;
+	} while (state != MHI_STATE_M0 && max_cnt < MHI_SUSPEND_TIMEOUT);
+
+	if (state == MHI_STATE_M0) {
+		ret = mhi_ep_cache_host_cfg(mhi_cntrl);
+		if (ret) {
+			dev_err(dev, "Failed to cache host config\n");
+			return ret;
+		}
+
+		mhi_ep_mmio_set_env(mhi_cntrl, MHI_EP_AMSS_EE);
+	} else {
+		dev_err(dev, "Host failed to enter M0\n");
+		return -ETIMEDOUT;
+	}
+
+	/* Enable all interrupts now */
+	mhi_ep_enable_int(mhi_cntrl);
+
+	return 0;
 }
 
 static void mhi_ep_ring_worker(struct work_struct *work)
@@ -312,6 +484,62 @@ static irqreturn_t mhi_ep_irq(int irq, void *data)
 
 	return IRQ_HANDLED;
 }
+
+int mhi_ep_power_up(struct mhi_ep_cntrl *mhi_cntrl)
+{
+	struct device *dev = &mhi_cntrl->mhi_dev->dev;
+	int ret, i;
+
+	/*
+	 * Mask all interrupts until the state machine is ready. Interrupts will
+	 * be enabled later with mhi_ep_enable().
+	 */
+	mhi_ep_mmio_mask_interrupts(mhi_cntrl);
+	mhi_ep_mmio_init(mhi_cntrl);
+
+	mhi_cntrl->mhi_event = kzalloc(mhi_cntrl->event_rings * (sizeof(*mhi_cntrl->mhi_event)),
+				       GFP_KERNEL);
+	if (!mhi_cntrl->mhi_event)
+		return -ENOMEM;
+
+	/* Initialize command, channel and event rings */
+	mhi_ep_ring_init(&mhi_cntrl->mhi_cmd->ring, RING_TYPE_CMD, 0);
+	for (i = 0; i < mhi_cntrl->max_chan; i++)
+		mhi_ep_ring_init(&mhi_cntrl->mhi_chan[i].ring, RING_TYPE_CH, i);
+	for (i = 0; i < mhi_cntrl->event_rings; i++)
+		mhi_ep_ring_init(&mhi_cntrl->mhi_event[i].ring, RING_TYPE_ER, i);
+
+	spin_lock_bh(&mhi_cntrl->state_lock);
+	mhi_cntrl->mhi_state = MHI_STATE_RESET;
+	spin_unlock_bh(&mhi_cntrl->state_lock);
+
+	/* Set AMSS EE before signaling ready state */
+	mhi_ep_mmio_set_env(mhi_cntrl, MHI_EP_AMSS_EE);
+
+	/* All set, notify the host that we are ready */
+	ret = mhi_ep_set_ready_state(mhi_cntrl);
+	if (ret)
+		goto err_free_event;
+
+	dev_dbg(dev, "READY state notification sent to the host\n");
+
+	ret = mhi_ep_enable(mhi_cntrl);
+	if (ret) {
+		dev_err(dev, "Failed to enable MHI endpoint: %d\n", ret);
+		goto err_free_event;
+	}
+
+	enable_irq(mhi_cntrl->irq);
+	mhi_cntrl->is_enabled = true;
+
+	return 0;
+
+err_free_event:
+	kfree(mhi_cntrl->mhi_event);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(mhi_ep_power_up);
 
 static void mhi_ep_release_device(struct device *dev)
 {
