@@ -59,6 +59,19 @@ struct mhi_ep_db_info {
  * @mhi_event: Points to the event ring configurations table
  * @mhi_cmd: Points to the command ring configurations table
  * @sm: MHI Endpoint state machine
+ * @ch_ctx_cache: Cache of host channel context data structure
+ * @ev_ctx_cache: Cache of host event context data structure
+ * @cmd_ctx_cache: Cache of host command context data structure
+ * @ch_ctx_host_pa: Physical address of host channel context data structure
+ * @ev_ctx_host_pa: Physical address of host event context data structure
+ * @cmd_ctx_host_pa: Physical address of host command context data structure
+ * @ch_ctx_cache_phys: Physical address of the host channel context cache
+ * @ev_ctx_cache_phys: Physical address of the host event context cache
+ * @cmd_ctx_cache_phys: Physical address of the host command context cache
+ * @ch_ctx_host_size: Size of the host channel context data structure
+ * @ev_ctx_host_size: Size of the host event context data structure
+ * @cmd_ctx_host_size: Size of the host command context data structure
+ * @chdb: Array of channel doorbell interrupt info
  * @raise_irq: CB function for raising IRQ to the host
  * @alloc_addr: CB function for allocating memory in endpoint for storing host context
  * @map_addr: CB function for mapping host context to endpoint
@@ -66,6 +79,10 @@ struct mhi_ep_db_info {
  * @unmap_addr: CB function to unmap the host context in endpoint
  * @mhi_state: MHI Endpoint state
  * @max_chan: Maximum channels supported by the endpoint controller
+ * @event_rings: Number of event rings supported by the endpoint controller
+ * @hw_event_rings: Number of hardware event rings supported by the endpoint controller
+ * @chdb_offset: Channel doorbell offset set by the host
+ * @erdb_offset: Event ring doorbell offset set by the host
  * @index: MHI Endpoint controller index
  */
 struct mhi_ep_cntrl {
@@ -77,6 +94,21 @@ struct mhi_ep_cntrl {
 	struct mhi_ep_event *mhi_event;
 	struct mhi_ep_cmd *mhi_cmd;
 	struct mhi_ep_sm *sm;
+
+	struct mhi_chan_ctxt *ch_ctx_cache;
+	struct mhi_event_ctxt *ev_ctx_cache;
+	struct mhi_cmd_ctxt *cmd_ctx_cache;
+	u64 ch_ctx_host_pa;
+	u64 ev_ctx_host_pa;
+	u64 cmd_ctx_host_pa;
+	phys_addr_t ch_ctx_cache_phys;
+	phys_addr_t ev_ctx_cache_phys;
+	phys_addr_t cmd_ctx_cache_phys;
+	size_t ch_ctx_host_size;
+	size_t ev_ctx_host_size;
+	size_t cmd_ctx_host_size;
+
+	struct mhi_ep_db_info chdb[4];
 
 	void (*raise_irq)(struct mhi_ep_cntrl *mhi_cntrl);
 	void __iomem *(*alloc_addr)(struct mhi_ep_cntrl *mhi_cntrl,
@@ -91,6 +123,10 @@ struct mhi_ep_cntrl {
 	enum mhi_state mhi_state;
 
 	u32 max_chan;
+	u32 event_rings;
+	u32 hw_event_rings;
+	u32 chdb_offset;
+	u32 erdb_offset;
 	int index;
 };
 
