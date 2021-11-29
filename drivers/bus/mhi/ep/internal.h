@@ -188,6 +188,8 @@ int mhi_ep_process_ring(struct mhi_ep_ring *ring);
 int mhi_ep_ring_add_element(struct mhi_ep_ring *ring, struct mhi_ep_ring_element *element,
 			    int evt_offset);
 void mhi_ep_ring_inc_index(struct mhi_ep_ring *ring);
+int mhi_ep_process_cmd_ring(struct mhi_ep_ring *ring, struct mhi_ep_ring_element *el);
+int mhi_ep_process_tre_ring(struct mhi_ep_ring *ring, struct mhi_ep_ring_element *el);
 
 /* MMIO related functions */
 void mhi_ep_mmio_read(struct mhi_ep_cntrl *mhi_cntrl, u32 offset, u32 *regval);
