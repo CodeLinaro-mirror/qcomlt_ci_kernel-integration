@@ -176,6 +176,21 @@
 #define MHI_TRE_GET_EV_LINKSPEED(tre)			((MHI_TRE_GET_DWORD(tre, 1) >> 24) & 0xFF)
 #define MHI_TRE_GET_EV_LINKWIDTH(tre)			(MHI_TRE_GET_DWORD(tre, 0) & 0xFF)
 
+/* State change event */
+#define MHI_SC_EV_PTR					0
+#define MHI_SC_EV_DWORD0(state)				cpu_to_le32(state << 24)
+#define MHI_SC_EV_DWORD1(type)				cpu_to_le32(type << 16)
+
+/* EE event */
+#define MHI_EE_EV_PTR					0
+#define MHI_EE_EV_DWORD0(ee)				cpu_to_le32(ee << 24)
+#define MHI_EE_EV_DWORD1(type)				cpu_to_le32(type << 16)
+
+/* Command Completion event */
+#define MHI_CC_EV_PTR(ptr)				cpu_to_le64(ptr)
+#define MHI_CC_EV_DWORD0(code)				cpu_to_le32(code << 24)
+#define MHI_CC_EV_DWORD1(type)				cpu_to_le32(type << 16)
+
 /* Transfer descriptor macros */
 #define MHI_TRE_DATA_PTR(ptr)				cpu_to_le64(ptr)
 #define MHI_TRE_DATA_DWORD0(len)			cpu_to_le32(len & MHI_MAX_MTU)
