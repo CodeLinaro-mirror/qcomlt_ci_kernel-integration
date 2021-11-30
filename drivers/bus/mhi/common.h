@@ -174,7 +174,18 @@ struct mhi_cmd_ctxt {
 	__u64 wp __packed __aligned(4);
 };
 
-extern const char * const mhi_state_str[MHI_STATE_MAX];
+static const char * const mhi_state_str[MHI_STATE_MAX] = {
+	[MHI_STATE_RESET] = "RESET",
+	[MHI_STATE_READY] = "READY",
+	[MHI_STATE_M0] = "M0",
+	[MHI_STATE_M1] = "M1",
+	[MHI_STATE_M2] = "M2",
+	[MHI_STATE_M3] = "M3",
+	[MHI_STATE_M3_FAST] = "M3 FAST",
+	[MHI_STATE_BHI] = "BHI",
+	[MHI_STATE_SYS_ERR] = "SYS ERROR",
+};
+
 #define TO_MHI_STATE_STR(state) ((state >= MHI_STATE_MAX || \
 				  !mhi_state_str[state]) ? \
 				"INVALID_STATE" : mhi_state_str[state])
