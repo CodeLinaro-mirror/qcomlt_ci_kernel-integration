@@ -231,9 +231,15 @@ static void pci_epf_mhi_worker(struct work_struct *work)
 		epf_mhi->link_up = true;
 		break;
 	case LINK_DOWN:
-		/* Power down the MHI EP stack if both link and MHI EP stack were up */
-		if (mhi_cntrl->is_enabled && epf_mhi->link_up)
+		/*
+		 * Power down the MHI EP stack and unregister the controller
+		 * if both link and MHI EP stack were up
+		 */
+		if (mhi_cntrl->is_enabled && epf_mhi->link_up) {
 			mhi_ep_power_down(mhi_cntrl);
+			mhi_ep_unregister_controller(mhi_cntrl);
+			epf_mhi->mhi_registered = false;
+		}
 
 		epf_mhi->link_up = false;
 		break;
