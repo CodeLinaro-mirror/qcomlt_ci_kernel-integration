@@ -10,6 +10,7 @@
 #include <linux/clk-provider.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
+#include <linux/pm_runtime.h>
 #include <linux/of_platform.h>
 #include <sound/tlv.h>
 #include "lpass-wsa-macro.h"
@@ -2309,12 +2310,22 @@ static int wsa_macro_component_probe(struct snd_soc_component *comp)
 
 static int swclk_gate_enable(struct clk_hw *hw)
 {
-	return wsa_swrm_clock(to_wsa_macro(hw), true);
+	struct wsa_macro *wsa = to_wsa_macro(hw);
+	int ret;
+
+	clk_prepare_enable(wsa->clks[2].clk);
+
+	ret = wsa_swrm_clock(wsa, true);
+
+	return ret;
 }
 
 static void swclk_gate_disable(struct clk_hw *hw)
 {
-	wsa_swrm_clock(to_wsa_macro(hw), false);
+	struct wsa_macro *wsa = to_wsa_macro(hw);
+
+	wsa_swrm_clock(wsa, false);
+	clk_disable_unprepare(wsa->clks[2].clk);
 }
 
 static int swclk_gate_is_enabled(struct clk_hw *hw)
@@ -2350,7 +2361,7 @@ static int wsa_macro_register_mclk_output(struct wsa_macro *wsa)
 	struct clk_init_data init;
 	int ret;
 
-	parent_clk_name = __clk_get_name(wsa->clks[2].clk);
+	parent_clk_name = __clk_get_name(wsa->clks[3].clk);
 
 	init.name = clk_name;
 	init.ops = &swclk_gate_ops;
@@ -2427,6 +2438,12 @@ static int wsa_macro_probe(struct platform_device *pdev)
 	if (ret)
 		goto err;
 
+	pm_runtime_set_autosuspend_delay(dev, 3000);
+	pm_runtime_use_autosuspend(dev);
+	pm_runtime_mark_last_busy(dev);
+	pm_runtime_set_active(dev);
+	pm_runtime_enable(dev);
+
 	return ret;
 err:
 	clk_bulk_disable_unprepare(WSA_NUM_CLKS_MAX, wsa->clks);
@@ -2444,6 +2461,37 @@ static int wsa_macro_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static int __maybe_unused wsa_macro_runtime_suspend(struct device *dev)
+{
+	struct wsa_macro *wsa = dev_get_drvdata(dev);
+
+	regcache_cache_only(wsa->regmap, true);
+	regcache_mark_dirty(wsa->regmap);
+
+	clk_disable_unprepare(wsa->clks[2].clk);
+	clk_disable_unprepare(wsa->clks[3].clk);
+	clk_disable_unprepare(wsa->clks[4].clk);
+
+	return 0;
+}
+
+static int __maybe_unused wsa_macro_runtime_resume(struct device *dev)
+{
+	struct wsa_macro *wsa = dev_get_drvdata(dev);
+
+	clk_prepare_enable(wsa->clks[2].clk);
+	clk_prepare_enable(wsa->clks[3].clk);
+	clk_prepare_enable(wsa->clks[4].clk);
+	regcache_cache_only(wsa->regmap, false);
+	regcache_sync(wsa->regmap);
+
+	return 0;
+}
+
+static const struct dev_pm_ops wsa_macro_pm_ops = {
+	SET_RUNTIME_PM_OPS(wsa_macro_runtime_suspend, wsa_macro_runtime_resume, NULL)
+};
+
 static const struct of_device_id wsa_macro_dt_match[] = {
 	{.compatible = "qcom,sc7280-lpass-wsa-macro"},
 	{.compatible = "qcom,sm8250-lpass-wsa-macro"},
@@ -2455,6 +2503,7 @@ static struct platform_driver wsa_macro_driver = {
 	.driver = {
 		.name = "wsa_macro",
 		.of_match_table = wsa_macro_dt_match,
+		.pm = &wsa_macro_pm_ops,
 	},
 	.probe = wsa_macro_probe,
 	.remove = wsa_macro_remove,

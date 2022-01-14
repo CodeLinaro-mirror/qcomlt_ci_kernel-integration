@@ -5,6 +5,7 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/platform_device.h>
+#include <linux/pm_runtime.h>
 #include <linux/clk.h>
 #include <sound/soc.h>
 #include <sound/pcm.h>
@@ -3423,6 +3424,7 @@ static int swclk_gate_enable(struct clk_hw *hw)
 {
 	struct rx_macro *rx = to_rx_macro(hw);
 
+	clk_prepare_enable(rx->clks[2].clk);
 	rx_macro_mclk_enable(rx, true);
 	if (rx->reset_swr)
 		regmap_update_bits(rx->regmap, CDC_RX_CLK_RST_CTRL_SWR_CONTROL,
@@ -3448,6 +3450,7 @@ static void swclk_gate_disable(struct clk_hw *hw)
 			   CDC_RX_SWR_CLK_EN_MASK, 0);
 
 	rx_macro_mclk_enable(rx, false);
+	clk_disable_unprepare(rx->clks[2].clk);
 }
 
 static int swclk_gate_is_enabled(struct clk_hw *hw)
@@ -3485,7 +3488,7 @@ static struct clk *rx_macro_register_mclk_output(struct rx_macro *rx)
 	struct clk_init_data init;
 	int ret;
 
-	parent_clk_name = __clk_get_name(rx->clks[2].clk);
+	parent_clk_name = __clk_get_name(rx->clks[3].clk);
 
 	init.name = clk_name;
 	init.ops = &swclk_gate_ops;
@@ -3549,7 +3552,7 @@ static int rx_macro_probe(struct platform_device *pdev)
 	rx->dev = dev;
 
 	/* set MCLK and NPL rates */
-	clk_set_rate(rx->clks[2].clk, MCLK_FREQ);
+	clk_set_rate(rx->clks[2].clk, 2 * MCLK_FREQ);
 	clk_set_rate(rx->clks[3].clk, 2 * MCLK_FREQ);
 
 	ret = clk_bulk_prepare_enable(RX_NUM_CLKS_MAX, rx->clks);
@@ -3561,9 +3564,17 @@ static int rx_macro_probe(struct platform_device *pdev)
 	ret = devm_snd_soc_register_component(dev, &rx_macro_component_drv,
 					      rx_macro_dai,
 					      ARRAY_SIZE(rx_macro_dai));
-	if (ret)
+	if (ret) {
 		clk_bulk_disable_unprepare(RX_NUM_CLKS_MAX, rx->clks);
+		goto err;
+	}
 
+	pm_runtime_set_autosuspend_delay(dev, 3000);
+	pm_runtime_use_autosuspend(dev);
+	pm_runtime_mark_last_busy(dev);
+	pm_runtime_set_active(dev);
+	pm_runtime_enable(dev);
+err:
 	return ret;
 }
 
@@ -3583,11 +3594,42 @@ static const struct of_device_id rx_macro_dt_match[] = {
 };
 MODULE_DEVICE_TABLE(of, rx_macro_dt_match);
 
+static int __maybe_unused rx_macro_runtime_suspend(struct device *dev)
+{
+	struct rx_macro *rx = dev_get_drvdata(dev);
+	regcache_cache_only(rx->regmap, true);
+	regcache_mark_dirty(rx->regmap);
+
+	clk_disable_unprepare(rx->clks[2].clk);
+	pr_err("DEBUG: %s RX NPL disable: %d \n", __func__, __LINE__);
+	clk_disable_unprepare(rx->clks[3].clk);
+	clk_disable_unprepare(rx->clks[4].clk);
+
+	return 0;
+}
+
+static int __maybe_unused rx_macro_runtime_resume(struct device *dev)
+{
+	struct rx_macro *rx = dev_get_drvdata(dev);
+
+	clk_prepare_enable(rx->clks[2].clk);
+	clk_prepare_enable(rx->clks[3].clk);
+	clk_prepare_enable(rx->clks[4].clk);
+	regcache_cache_only(rx->regmap, false);
+	regcache_sync(rx->regmap);
+	return 0;
+}
+
+static const struct dev_pm_ops rx_macro_pm_ops = {
+	SET_RUNTIME_PM_OPS(rx_macro_runtime_suspend, rx_macro_runtime_resume, NULL)
+};
+
 static struct platform_driver rx_macro_driver = {
 	.driver = {
 		.name = "rx_macro",
 		.of_match_table = rx_macro_dt_match,
 		.suppress_bind_attrs = true,
+		.pm = &rx_macro_pm_ops,
 	},
 	.probe = rx_macro_probe,
 	.remove = rx_macro_remove,
