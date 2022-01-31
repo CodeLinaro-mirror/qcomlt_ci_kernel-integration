@@ -7,6 +7,9 @@
 
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include "sm8450.dtsi"
+#include "pm8350.dtsi"
+#include "pm8350b.dtsi"
+#include "pmr735b.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SM8450 QRD";
@@ -45,9 +48,9 @@
 		vdd-s7-supply = <&vph_pwr>;
 		vdd-s8-supply = <&vph_pwr>;
 		vdd-s9-supply = <&vph_pwr>;
-		vdd-s10-supply = <&vph_pwr>;
-		vdd-s11-supply = <&vph_pwr>;
-		vdd-s12-supply = <&vph_pwr>;
+		vdd-s10-supply = <&vreg_l7e_2p8>;
+		vdd-s11-supply = <&vreg_s2e_0p85>;
+		vdd-s12-supply = <&vreg_s11b_0p95>;
 
 		vdd-l1-l4-supply = <&vreg_s11b_0p95>;
 		vdd-l2-l7-supply = <&vreg_bob>;
@@ -63,13 +66,13 @@
 
 		vreg_s11b_0p95: smps11 {
 			regulator-name = "vreg_s11b_0p95";
-			regulator-min-microvolt = <848000>;
+			regulator-min-microvolt = <966000>;
 			regulator-max-microvolt = <1104000>;
 		};
 
 		vreg_s12b_1p25: smps12 {
 			regulator-name = "vreg_s12b_1p25";
-			regulator-min-microvolt = <1224000>;
+			regulator-min-microvolt = <1350000>;
 			regulator-max-microvolt = <1400000>;
 		};
 
@@ -127,7 +130,7 @@
 		compatible = "qcom,pm8350c-rpmh-regulators";
 		qcom,pmic-id = "c";
 
-		vdd-s1-supply = <&vph_pwr>;
+		vdd-s1-supply = <&vreg_s12b_1p25>;
 		vdd-s2-supply = <&vph_pwr>;
 		vdd-s3-supply = <&vph_pwr>;
 		vdd-s4-supply = <&vph_pwr>;
@@ -147,7 +150,7 @@
 
 		vreg_s1c_1p86: smps1 {
 			regulator-name = "vreg_s1c_1p86";
-			regulator-min-microvolt = <1800000>;
+			regulator-min-microvolt = <1900000>;
 			regulator-max-microvolt = <2024000>;
 		};
 
@@ -283,7 +286,7 @@
 		qcom,pmic-id = "e";
 
 		vdd-s1-supply = <&vph_pwr>;
-		vdd-s2-supply = <&vph_pwr>;
+		vdd-s2-supply = <&vreg_s10b_1p8>;
 		vdd-s3-supply = <&vph_pwr>;
 
 		vdd-l1-l2-supply = <&vreg_s2e_0p85>;
@@ -300,8 +303,8 @@
 
 		vreg_s2e_0p85: smps2 {
 			regulator-name = "vreg_s2e_0p85";
-			regulator-min-microvolt = <500000>;
-			regulator-max-microvolt = <1040000>;
+			regulator-min-microvolt = <1012000>;
+			regulator-max-microvolt = <1012000>;
 		};
 
 		vreg_l1e_0p8: ldo1 {
@@ -339,15 +342,90 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <1200000>;
 		};
+
+		vreg_l7e_2p8: ldo7 {
+			regulator-name = "vreg_l7e_2p8";
+			regulator-min-microvolt = <2800000>;
+			regulator-max-microvolt = <2800000>;
+		};
 	};
+
+	xo_clk: xo-clk {
+		pinctrl-names = "default";
+		pinctrl-0 = <&xo_clk_gpios>;
+		compatible = "regulator-fixed";
+		regulator-name = "xo-clk-regulator";
+
+		gpio = <&tlmm 204 0>;
+
+		/* WLAN card specific delay */
+		startup-delay-us = <1000>;
+		enable-active-high;
+		vin-supply = <&vreg_s1c_1p86>;
+	};
+
+	wlan_en: wlan-en-1-8v {
+		pinctrl-names = "default";
+		pinctrl-0 = <&wlan_en_gpios>;
+		compatible = "regulator-fixed";
+		regulator-name = "wlan-en-regulator";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+
+		gpio = <&tlmm 80 0>;
+
+		/* WLAN card specific delay */
+		startup-delay-us = <70000>;
+		enable-active-high;
+		vin-supply = <&xo_clk>;
+	};
+};
+
+&pcie0 {
+	status = "okay";
+	vddpe-3v3-supply = <&wlan_en>;
+	max-link-speed = <2>;
+};
+
+&pcie0_phy {
+	status = "okay";
+	vdda-phy-supply = <&vreg_l5b_0p88>;
+	vdda-pll-supply = <&vreg_l6b_1p2>;
 };
 
 &qupv3_id_0 {
 	status = "okay";
 };
 
+&qupv3_id_1 {
+	status = "okay";
+};
+
 &tlmm {
 	gpio-reserved-ranges = <28 4>, <36 4>;
+
+	xo_clk_gpios: xo_clk_gpios {
+		pinconf {
+			pins = "gpio204";
+			function = "gpio";
+
+			drive-strength = <16>;
+			output-low;
+			bias-pull-down;
+		};
+	};
+
+	wlan_en_gpios: wlan_en_gpios {
+		pinconf {
+			pins = "gpio80";
+			function = "gpio";
+
+			drive-strength = <16>;
+			output-low;
+			bias-pull-down;
+		};
+	};
+
 };
 
 &uart7 {
