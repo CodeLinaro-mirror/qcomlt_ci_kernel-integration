@@ -82,13 +82,9 @@ extern struct bus_type mhi_bus_type;
 
 #define SOC_HW_VERSION_OFFS		0x224
 #define SOC_HW_VERSION_FAM_NUM_BMSK	GENMASK(31, 28)
-#define SOC_HW_VERSION_FAM_NUM_SHFT	28
 #define SOC_HW_VERSION_DEV_NUM_BMSK	GENMASK(27, 16)
-#define SOC_HW_VERSION_DEV_NUM_SHFT	16
 #define SOC_HW_VERSION_MAJOR_VER_BMSK	GENMASK(15, 8)
-#define SOC_HW_VERSION_MAJOR_VER_SHFT	8
 #define SOC_HW_VERSION_MINOR_VER_BMSK	GENMASK(7, 0)
-#define SOC_HW_VERSION_MINOR_VER_SHFT	0
 
 struct mhi_ctxt {
 	struct mhi_event_ctxt *er_ctxt;
@@ -393,14 +389,14 @@ int __must_check mhi_read_reg(struct mhi_controller *mhi_cntrl,
 			      void __iomem *base, u32 offset, u32 *out);
 int __must_check mhi_read_reg_field(struct mhi_controller *mhi_cntrl,
 				    void __iomem *base, u32 offset, u32 mask,
-				    u32 shift, u32 *out);
+				    u32 *out);
 int __must_check mhi_poll_reg_field(struct mhi_controller *mhi_cntrl,
 				    void __iomem *base, u32 offset, u32 mask,
-				    u32 shift, u32 val, u32 delayus);
+				    u32 val, u32 delayus);
 void mhi_write_reg(struct mhi_controller *mhi_cntrl, void __iomem *base,
 		   u32 offset, u32 val);
 void mhi_write_reg_field(struct mhi_controller *mhi_cntrl, void __iomem *base,
-			 u32 offset, u32 mask, u32 shift, u32 val);
+			 u32 offset, u32 mask, u32 val);
 void mhi_ring_er_db(struct mhi_event *mhi_event);
 void mhi_write_db(struct mhi_controller *mhi_cntrl, void __iomem *db_addr,
 		  dma_addr_t db_val);
