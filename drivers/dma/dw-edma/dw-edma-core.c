@@ -333,28 +333,16 @@ dw_edma_device_transfer(struct dw_edma_transfer *xfer)
 	struct dw_edma_chunk *chunk;
 	struct dw_edma_burst *burst;
 	struct dw_edma_desc *desc;
+	bool read = false;
 	u32 cnt = 0;
 	int i;
 
 	if (!chan->configured)
 		return NULL;
 
-	switch (chan->config.direction) {
-	case DMA_DEV_TO_MEM: /* local DMA */
-		if (dir == DMA_DEV_TO_MEM && chan->dir == EDMA_DIR_READ)
-			break;
+	/* eDMA supports only read and write between local and remote memory */
+	if (dir != DMA_DEV_TO_MEM && dir != DMA_MEM_TO_DEV)
 		return NULL;
-	case DMA_MEM_TO_DEV: /* local DMA */
-		if (dir == DMA_MEM_TO_DEV && chan->dir == EDMA_DIR_WRITE)
-			break;
-		return NULL;
-	default: /* remote DMA */
-		if (dir == DMA_MEM_TO_DEV && chan->dir == EDMA_DIR_READ)
-			break;
-		if (dir == DMA_DEV_TO_MEM && chan->dir == EDMA_DIR_WRITE)
-			break;
-		return NULL;
-	}
 
 	if (xfer->type == EDMA_XFER_CYCLIC) {
 		if (!xfer->xfer.cyclic.len || !xfer->xfer.cyclic.cnt)
@@ -423,7 +411,36 @@ dw_edma_device_transfer(struct dw_edma_transfer *xfer)
 		chunk->ll_region.sz += burst->sz;
 		desc->alloc_sz += burst->sz;
 
-		if (chan->dir == EDMA_DIR_WRITE) {
+		/****************************************************************
+		 *
+		 *        Root Complex                           Endpoint
+		 * +-----------------------+             +----------------------+
+		 * |                       |    TX CH    |                      |
+		 * |                       |             |                      |
+		 * |      DEV_TO_MEM       <-------------+     MEM_TO_DEV       |
+		 * |                       |             |                      |
+		 * |                       |             |                      |
+		 * |      MEM_TO_DEV       +------------->     DEV_TO_MEM       |
+		 * |                       |             |                      |
+		 * |                       |    RX CH    |                      |
+		 * +-----------------------+             +----------------------+
+		 *
+		 * If eDMA is controlled by the Root complex, TX channel
+		 * (EDMA_DIR_WRITE) is used for memory read (DEV_TO_MEM) and RX
+		 * channel (EDMA_DIR_READ) is used for memory write (MEM_TO_DEV).
+		 *
+		 * If eDMA is controlled by the endpoint, RX channel
+		 * (EDMA_DIR_READ) is used for memory read (DEV_TO_MEM) and TX
+		 * channel (EDMA_DIR_WRITE) is used for memory write (MEM_TO_DEV).
+		 *
+		 ****************************************************************/
+
+		if ((dir == DMA_DEV_TO_MEM && chan->dir == EDMA_DIR_READ) ||
+		    (dir == DMA_DEV_TO_MEM && chan->dir == EDMA_DIR_WRITE))
+			read = true;
+
+		/* Program the source and destination addresses for DMA read/write */
+		if (read) {
 			burst->sar = src_addr;
 			if (xfer->type == EDMA_XFER_CYCLIC) {
 				burst->dar = xfer->xfer.cyclic.paddr;
@@ -534,6 +551,15 @@ dw_edma_device_prep_interleaved_dma(struct dma_chan *dchan,
 	xfer.type = EDMA_XFER_INTERLEAVED;
 
 	return dw_edma_device_transfer(&xfer);
+}
+
+/* Override the generic DMA slave channel direction with per-channel specific one */
+static void dw_edma_device_caps(struct dma_chan *dchan, struct dma_slave_caps *caps)
+{
+	struct dw_edma_chan *chan = dchan2dw_edma_chan(dchan);
+
+	caps->directions = (chan->dir == EDMA_DIR_WRITE) ? BIT(DMA_MEM_TO_DEV) :
+			    BIT(DMA_DEV_TO_MEM);
 }
 
 static void dw_edma_done_interrupt(struct dw_edma_chan *chan)
@@ -803,6 +829,7 @@ static int dw_edma_channel_setup(struct dw_edma_chip *chip, bool write,
 	dma->device_prep_slave_sg = dw_edma_device_prep_slave_sg;
 	dma->device_prep_dma_cyclic = dw_edma_device_prep_dma_cyclic;
 	dma->device_prep_interleaved_dma = dw_edma_device_prep_interleaved_dma;
+	dma->device_caps = dw_edma_device_caps;
 
 	dma_set_max_seg_size(dma->dev, U32_MAX);
 
