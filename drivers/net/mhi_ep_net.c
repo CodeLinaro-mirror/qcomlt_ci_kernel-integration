@@ -220,7 +220,7 @@ static void mhi_ep_net_ul_callback(struct mhi_ep_device *mhi_dev,
 		u64_stats_inc(&mhi_ep_netdev->stats.rx_packets);
 		u64_stats_add(&mhi_ep_netdev->stats.rx_bytes, skb->len);
 		u64_stats_update_end(&mhi_ep_netdev->stats.rx_syncp);
-		__netif_rx(skb);
+		netif_rx(skb);
 	}
 }
 
