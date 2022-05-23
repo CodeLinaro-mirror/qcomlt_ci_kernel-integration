@@ -57,12 +57,14 @@
 - interrupts:
 	Usage: required
 	Value type: <prop-encoded-array>
-	Definition: MSI interrupt
+	Definition: MSI interrupt(s)
 
 - interrupt-names:
 	Usage: required
 	Value type: <stringlist>
 	Definition: Should contain "msi"
+		    May also contains "msi2", "msi3"... up to "msi8"
+		    if the platform supports additional MSI interrupts.
 
 - #interrupt-cells:
 	Usage: required
