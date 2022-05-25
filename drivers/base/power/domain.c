@@ -225,24 +225,23 @@ static void genpd_debug_remove(struct generic_pm_domain *genpd)
 
 static void genpd_update_accounting(struct generic_pm_domain *genpd)
 {
-	ktime_t delta, now;
+	u64 delta, now;
 
-	now = ktime_get();
-	delta = ktime_sub(now, genpd->accounting_time);
+	now = ktime_get_mono_fast_ns();
+	if (now <= genpd->accounting_time)
+		return;
+
+	delta = now - genpd->accounting_time;
 
 	/*
 	 * If genpd->status is active, it means we are just
 	 * out of off and so update the idle time and vice
 	 * versa.
 	 */
-	if (genpd->status == GENPD_STATE_ON) {
-		int state_idx = genpd->state_idx;
-
-		genpd->states[state_idx].idle_time =
-			ktime_add(genpd->states[state_idx].idle_time, delta);
-	} else {
-		genpd->on_time = ktime_add(genpd->on_time, delta);
-	}
+	if (genpd->status == GENPD_STATE_ON)
+		genpd->states[genpd->state_idx].idle_time += delta;
+	else
+		genpd->on_time += delta;
 
 	genpd->accounting_time = now;
 }
@@ -487,6 +486,29 @@ void dev_pm_genpd_set_next_wakeup(struct device *dev, ktime_t next)
 	gpd_data->next_wakeup = next;
 }
 EXPORT_SYMBOL_GPL(dev_pm_genpd_set_next_wakeup);
+
+/**
+ * dev_pm_genpd_get_next_hrtimer - Return genpd domain next_hrtimer.
+ *
+ * @dev: Device to handle
+ *
+ * Returns the aggregated domain wakeup time for CPU PM domain
+ * when all the subdomains are off.
+ */
+ktime_t dev_pm_genpd_get_next_hrtimer(struct device *dev)
+{
+	struct generic_pm_domain *genpd;
+
+	genpd = dev_to_genpd_safe(dev);
+	if (!genpd)
+		return KTIME_MAX;
+
+	if (atomic_read(&genpd->sd_count) > 0)
+		return KTIME_MAX;
+
+	return genpd->next_hrtimer;
+}
+EXPORT_SYMBOL_GPL(dev_pm_genpd_get_next_hrtimer);
 
 static int _genpd_power_on(struct generic_pm_domain *genpd, bool timed)
 {
@@ -1999,7 +2021,8 @@ int pm_genpd_init(struct generic_pm_domain *genpd,
 	genpd->max_off_time_changed = true;
 	genpd->provider = NULL;
 	genpd->has_provider = false;
-	genpd->accounting_time = ktime_get();
+	genpd->next_hrtimer = KTIME_MAX;
+	genpd->accounting_time = ktime_get_mono_fast_ns();
 	genpd->domain.ops.runtime_suspend = genpd_runtime_suspend;
 	genpd->domain.ops.runtime_resume = genpd_runtime_resume;
 	genpd->domain.ops.prepare = genpd_prepare;
@@ -3163,6 +3186,7 @@ static int sub_domains_show(struct seq_file *s, void *data)
 static int idle_states_show(struct seq_file *s, void *data)
 {
 	struct generic_pm_domain *genpd = s->private;
+	u64 now, delta, idle_time = 0;
 	unsigned int i;
 	int ret = 0;
 
@@ -3173,17 +3197,19 @@ static int idle_states_show(struct seq_file *s, void *data)
 	seq_puts(s, "State          Time Spent(ms) Usage          Rejected\n");
 
 	for (i = 0; i < genpd->state_count; i++) {
-		ktime_t delta = 0;
-		s64 msecs;
+		idle_time += genpd->states[i].idle_time;
 
-		if ((genpd->status == GENPD_STATE_OFF) &&
-				(genpd->state_idx == i))
-			delta = ktime_sub(ktime_get(), genpd->accounting_time);
+		if (genpd->status == GENPD_STATE_OFF && genpd->state_idx == i) {
+			now = ktime_get_mono_fast_ns();
+			if (now > genpd->accounting_time) {
+				delta = now - genpd->accounting_time;
+				idle_time += delta;
+			}
+		}
 
-		msecs = ktime_to_ms(
-			ktime_add(genpd->states[i].idle_time, delta));
-		seq_printf(s, "S%-13i %-14lld %-14llu %llu\n", i, msecs,
-			      genpd->states[i].usage, genpd->states[i].rejected);
+		do_div(idle_time, NSEC_PER_MSEC);
+		seq_printf(s, "S%-13i %-14llu %-14llu %llu\n", i, idle_time,
+			   genpd->states[i].usage, genpd->states[i].rejected);
 	}
 
 	genpd_unlock(genpd);
@@ -3193,18 +3219,22 @@ static int idle_states_show(struct seq_file *s, void *data)
 static int active_time_show(struct seq_file *s, void *data)
 {
 	struct generic_pm_domain *genpd = s->private;
-	ktime_t delta = 0;
+	u64 now, on_time, delta = 0;
 	int ret = 0;
 
 	ret = genpd_lock_interruptible(genpd);
 	if (ret)
 		return -ERESTARTSYS;
 
-	if (genpd->status == GENPD_STATE_ON)
-		delta = ktime_sub(ktime_get(), genpd->accounting_time);
+	if (genpd->status == GENPD_STATE_ON) {
+		now = ktime_get_mono_fast_ns();
+		if (now > genpd->accounting_time)
+			delta = now - genpd->accounting_time;
+	}
 
-	seq_printf(s, "%lld ms\n", ktime_to_ms(
-				ktime_add(genpd->on_time, delta)));
+	on_time = genpd->on_time + delta;
+	do_div(on_time, NSEC_PER_MSEC);
+	seq_printf(s, "%llu ms\n", on_time);
 
 	genpd_unlock(genpd);
 	return ret;
@@ -3213,7 +3243,7 @@ static int active_time_show(struct seq_file *s, void *data)
 static int total_idle_time_show(struct seq_file *s, void *data)
 {
 	struct generic_pm_domain *genpd = s->private;
-	ktime_t delta = 0, total = 0;
+	u64 now, delta, total = 0;
 	unsigned int i;
 	int ret = 0;
 
@@ -3222,16 +3252,19 @@ static int total_idle_time_show(struct seq_file *s, void *data)
 		return -ERESTARTSYS;
 
 	for (i = 0; i < genpd->state_count; i++) {
+		total += genpd->states[i].idle_time;
 
-		if ((genpd->status == GENPD_STATE_OFF) &&
-				(genpd->state_idx == i))
-			delta = ktime_sub(ktime_get(), genpd->accounting_time);
-
-		total = ktime_add(total, genpd->states[i].idle_time);
+		if (genpd->status == GENPD_STATE_OFF && genpd->state_idx == i) {
+			now = ktime_get_mono_fast_ns();
+			if (now > genpd->accounting_time) {
+				delta = now - genpd->accounting_time;
+				total += delta;
+			}
+		}
 	}
-	total = ktime_add(total, delta);
 
-	seq_printf(s, "%lld ms\n", ktime_to_ms(total));
+	do_div(total, NSEC_PER_MSEC);
+	seq_printf(s, "%llu ms\n", total);
 
 	genpd_unlock(genpd);
 	return ret;
