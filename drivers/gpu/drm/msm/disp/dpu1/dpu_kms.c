@@ -923,8 +923,15 @@ static void dpu_kms_mdp_snapshot(struct msm_disp_state *disp_state, struct msm_k
 		msm_disp_snapshot_add_block(disp_state, cat->mixer[i].len,
 				dpu_kms->mmio + cat->mixer[i].base, "lm_%d", i);
 
-	msm_disp_snapshot_add_block(disp_state, top->hw.length,
-			dpu_kms->mmio + top->hw.blk_off, "top");
+	if (top->caps->features & BIT(DPU_MDP_PERIPH_0_REMOVED)) {
+		msm_disp_snapshot_add_block(disp_state, 0x380,
+				dpu_kms->mmio + top->hw.blk_off, "top");
+		msm_disp_snapshot_add_block(disp_state, top->hw.length - 0x3a8,
+				dpu_kms->mmio + top->hw.blk_off + 0x3a8, "top_2");
+	} else {
+		msm_disp_snapshot_add_block(disp_state, top->hw.length,
+				dpu_kms->mmio + top->hw.blk_off, "top");
+	}
 
 	pm_runtime_put_sync(&dpu_kms->pdev->dev);
 }
@@ -1202,7 +1209,9 @@ static int dpu_bind(struct device *dev, struct device *master, void *data)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct drm_device *ddev = priv->dev;
 	struct dpu_kms *dpu_kms;
+	struct dev_pm_opp *opp;
 	int ret = 0;
+	unsigned long max_freq = ULONG_MAX;
 
 	dpu_kms = devm_kzalloc(&pdev->dev, sizeof(*dpu_kms), GFP_KERNEL);
 	if (!dpu_kms)
@@ -1224,6 +1233,12 @@ static int dpu_bind(struct device *dev, struct device *master, void *data)
 		return ret;
 	}
 	dpu_kms->num_clocks = ret;
+
+	opp = dev_pm_opp_find_freq_floor(dev, &max_freq);
+	if (!IS_ERR(opp))
+		dev_pm_opp_put(opp);
+
+	dev_pm_opp_set_rate(dev, max_freq);
 
 	platform_set_drvdata(pdev, dpu_kms);
 
@@ -1329,6 +1344,7 @@ const struct of_device_id dpu_dt_match[] = {
 	{ .compatible = "qcom,sc8180x-dpu", },
 	{ .compatible = "qcom,sm8150-dpu", },
 	{ .compatible = "qcom,sm8250-dpu", },
+	{ .compatible = "qcom,sm8450-dpu", },
 	{}
 };
 MODULE_DEVICE_TABLE(of, dpu_dt_match);
