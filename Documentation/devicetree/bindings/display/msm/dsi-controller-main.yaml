@@ -78,9 +78,6 @@ properties:
     description: |
       The Byte clock and Pixel clock PLL outputs provided by a DSI PHY block.
 
-  power-domains:
-    maxItems: 1
-
   operating-points-v2: true
 
   ports:
@@ -148,7 +145,6 @@ required:
   - phys
   - assigned-clocks
   - assigned-clock-parents
-  - power-domains
   - ports
   - vdd-supply
   - vddio-supply
@@ -236,6 +232,8 @@ allOf:
             - const: core
             - const: iface
             - const: bus
+        power-domains:
+          maxItems: 1
 
   - if:
       properties:
@@ -259,6 +257,8 @@ allOf:
             - const: core_mmss
             - const: pixel
             - const: core
+        power-domains:
+          maxItems: 1
 
   - if:
       properties:
@@ -278,6 +278,8 @@ allOf:
             - const: core
             - const: iface
             - const: bus
+        power-domains:
+          maxItems: 1
 
 additionalProperties: false
 
