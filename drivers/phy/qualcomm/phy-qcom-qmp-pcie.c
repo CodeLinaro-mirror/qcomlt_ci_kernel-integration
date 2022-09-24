@@ -1320,10 +1320,14 @@ struct qmp_phy_cfg {
 	/* Main init sequence for PHY blocks - serdes, tx, rx, pcs */
 	struct qmp_phy_cfg_tables common;
 	/*
-	 * Additional init sequence for PHY blocks, providing additional
-	 * register programming. Unless required it can be left omitted.
+	 * Additional init sequences for PHY blocks, providing additional
+	 * register programming. They are used for providing separate sequences
+	 * for the Root Complex and for the End Point usecases.
+	 *
+	 * If EP mode is not supported, both tables can be left empty.
 	 */
-	struct qmp_phy_cfg_tables *extra;
+	struct qmp_phy_cfg_tables *extra_rc; /* for the RC only */
+	struct qmp_phy_cfg_tables *extra_ep; /* for the EP only */
 
 	/* clock ids to be requested */
 	const char * const *clk_list;
@@ -1367,6 +1371,7 @@ struct qmp_phy_cfg {
  * @pcs_misc: iomapped memory space for lane's pcs_misc
  * @pipe_clk: pipe clock
  * @qmp: QMP phy to which this lane belongs
+ * @extra: currently selected PHY extra init table set
  */
 struct qmp_phy {
 	struct phy *phy;
@@ -1379,6 +1384,7 @@ struct qmp_phy {
 	void __iomem *rx2;
 	void __iomem *pcs_misc;
 	struct clk *pipe_clk;
+	const struct qmp_phy_cfg_tables *extra;
 	struct qcom_qmp *qmp;
 };
 
@@ -1624,7 +1630,15 @@ static const struct qmp_phy_cfg sm8250_qmp_gen3x1_pciephy_cfg = {
 	.pcs_misc_tbl		= sm8250_qmp_pcie_pcs_misc_tbl,
 	.pcs_misc_tbl_num	= ARRAY_SIZE(sm8250_qmp_pcie_pcs_misc_tbl),
 	},
-	.extra = &(struct qmp_phy_cfg_tables) {
+	/*
+	 * For sm8250 the split between the primary and extra_rc tables is
+	 * historical, it reflects the programming sequence common to all PCIe
+	 * PHYs on this platform and a sequence required for this particular
+	 * PHY type. If EP support for sm8250 is required, the
+	 * primary/extra_rc split is to be reconsidered and adjusted
+	 * according to EP programming sequence.
+	 */
+	.extra_rc = &(struct qmp_phy_cfg_tables) {
 	.serdes_tbl		= sm8250_qmp_gen3x1_pcie_serdes_tbl,
 	.serdes_tbl_num		= ARRAY_SIZE(sm8250_qmp_gen3x1_pcie_serdes_tbl),
 	.rx_tbl			= sm8250_qmp_gen3x1_pcie_rx_tbl,
@@ -1666,7 +1680,15 @@ static const struct qmp_phy_cfg sm8250_qmp_gen3x2_pciephy_cfg = {
 	.pcs_misc_tbl		= sm8250_qmp_pcie_pcs_misc_tbl,
 	.pcs_misc_tbl_num	= ARRAY_SIZE(sm8250_qmp_pcie_pcs_misc_tbl),
 	},
-	.extra = &(struct qmp_phy_cfg_tables) {
+	/*
+	 * For sm8250 the split between the primary and extra_rc tables is
+	 * historical, it reflects the programming sequence common to all PCIe
+	 * PHYs on this platform and a sequence required for this particular
+	 * PHY type. If EP support for sm8250 is required, the
+	 * primary/extra_rc split is to be reconsidered and adjusted
+	 * according to EP programming sequence.
+	 */
+	.extra_rc = &(struct qmp_phy_cfg_tables) {
 	.tx_tbl			= sm8250_qmp_gen3x2_pcie_tx_tbl,
 	.tx_tbl_num		= ARRAY_SIZE(sm8250_qmp_gen3x2_pcie_tx_tbl),
 	.rx_tbl			= sm8250_qmp_gen3x2_pcie_rx_tbl,
@@ -2000,8 +2022,12 @@ static int qmp_pcie_power_on(struct phy *phy)
 	unsigned int mask, val, ready;
 	int ret;
 
+	/* Default to RC mode if the mode was not selected using phy_set_mode_ext() */
+	if (!qphy->extra)
+		qphy->extra = cfg->extra_rc;
+
 	qmp_pcie_serdes_init(qphy, &cfg->common);
-	qmp_pcie_serdes_init(qphy, cfg->extra);
+	qmp_pcie_serdes_init(qphy, qphy->extra);
 
 	ret = clk_prepare_enable(qphy->pipe_clk);
 	if (ret) {
@@ -2011,10 +2037,10 @@ static int qmp_pcie_power_on(struct phy *phy)
 
 	/* Tx, Rx, and PCS configurations */
 	qmp_pcie_lanes_init(qphy, &cfg->common);
-	qmp_pcie_lanes_init(qphy, cfg->extra);
+	qmp_pcie_lanes_init(qphy, qphy->extra);
 
 	qmp_pcie_pcs_init(qphy, &cfg->common);
-	qmp_pcie_pcs_init(qphy, cfg->extra);
+	qmp_pcie_pcs_init(qphy, qphy->extra);
 
 	/*
 	 * Pull out PHY from POWER DOWN state.
@@ -2099,6 +2125,26 @@ static int qmp_pcie_disable(struct phy *phy)
 		return ret;
 
 	return qmp_pcie_exit(phy);
+}
+
+static int qmp_pcie_set_mode(struct phy *phy,
+				 enum phy_mode mode, int submode)
+{
+	struct qmp_phy *qphy = phy_get_drvdata(phy);
+
+	switch (submode) {
+	case PHY_MODE_PCIE_RC:
+		qphy->extra = qphy->cfg->extra_rc;
+		break;
+	case PHY_MODE_PCIE_EP:
+		qphy->extra = qphy->cfg->extra_ep;
+		break;
+	default:
+		dev_err(&phy->dev, "Unuspported submode %d\n", submode);
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 static int qmp_pcie_vreg_init(struct device *dev, const struct qmp_phy_cfg *cfg)
@@ -2224,6 +2270,7 @@ static int phy_pipe_clk_register(struct qcom_qmp *qmp, struct device_node *np)
 static const struct phy_ops qmp_pcie_ops = {
 	.power_on	= qmp_pcie_enable,
 	.power_off	= qmp_pcie_disable,
+	.set_mode	= qmp_pcie_set_mode,
 	.owner		= THIS_MODULE,
 };
 
@@ -2281,7 +2328,9 @@ static int qmp_pcie_create(struct device *dev, struct device_node *np, int id,
 		qphy->pcs_misc = qphy->pcs + 0x400;
 
 	if (IS_ERR(qphy->pcs_misc)) {
-		if (cfg->common.pcs_misc_tbl || cfg->extra->pcs_misc_tbl)
+		if (cfg->common.pcs_misc_tbl ||
+		    cfg->extra_rc->pcs_misc_tbl ||
+		    cfg->extra_ep->pcs_misc_tbl)
 			return PTR_ERR(qphy->pcs_misc);
 	}
 
