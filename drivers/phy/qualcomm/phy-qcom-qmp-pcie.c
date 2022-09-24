@@ -1877,15 +1877,53 @@ static void qmp_pcie_configure(void __iomem *base,
 	qmp_pcie_configure_lane(base, regs, tbl, num, 0xff);
 }
 
-static int qmp_pcie_serdes_init(struct qmp_phy *qphy)
+static void qmp_pcie_serdes_init(struct qmp_phy *qphy, const struct qmp_phy_cfg_tables *tables)
 {
 	const struct qmp_phy_cfg *cfg = qphy->cfg;
 	void __iomem *serdes = qphy->serdes;
 
-	qmp_pcie_configure(serdes, cfg->regs, cfg->common.serdes_tbl, cfg->common.serdes_tbl_num);
-	qmp_pcie_configure(serdes, cfg->regs, cfg->extra->serdes_tbl, cfg->extra->serdes_tbl_num);
+	if (!tables)
+		return;
 
-	return 0;
+	qmp_pcie_configure(serdes, cfg->regs, tables->serdes_tbl, tables->serdes_tbl_num);
+}
+
+static void qmp_pcie_lanes_init(struct qmp_phy *qphy, const struct qmp_phy_cfg_tables *tables)
+{
+	const struct qmp_phy_cfg *cfg = qphy->cfg;
+	void __iomem *tx = qphy->tx;
+	void __iomem *rx = qphy->rx;
+
+	if (!tables)
+		return;
+
+	qmp_pcie_configure_lane(tx, cfg->regs,
+				tables->tx_tbl, tables->tx_tbl_num, 1);
+
+	if (cfg->lanes >= 2)
+		qmp_pcie_configure_lane(qphy->tx2, cfg->regs,
+					tables->tx_tbl, tables->tx_tbl_num, 2);
+
+	qmp_pcie_configure_lane(rx, cfg->regs,
+				tables->rx_tbl, tables->rx_tbl_num, 1);
+	if (cfg->lanes >= 2)
+		qmp_pcie_configure_lane(qphy->rx2, cfg->regs,
+					tables->rx_tbl, tables->rx_tbl_num, 2);
+}
+
+static void qmp_pcie_pcs_init(struct qmp_phy *qphy, const struct qmp_phy_cfg_tables *tables)
+{
+	const struct qmp_phy_cfg *cfg = qphy->cfg;
+	void __iomem *pcs = qphy->pcs;
+	void __iomem *pcs_misc = qphy->pcs_misc;
+
+	if (!tables)
+		return;
+
+	qmp_pcie_configure(pcs, cfg->regs,
+			   tables->pcs_tbl, tables->pcs_tbl_num);
+	qmp_pcie_configure(pcs_misc, cfg->regs,
+			   tables->pcs_misc_tbl, tables->pcs_misc_tbl_num);
 }
 
 static int qmp_pcie_init(struct phy *phy)
@@ -1957,15 +1995,13 @@ static int qmp_pcie_power_on(struct phy *phy)
 	struct qmp_phy *qphy = phy_get_drvdata(phy);
 	struct qcom_qmp *qmp = qphy->qmp;
 	const struct qmp_phy_cfg *cfg = qphy->cfg;
-	void __iomem *tx = qphy->tx;
-	void __iomem *rx = qphy->rx;
 	void __iomem *pcs = qphy->pcs;
-	void __iomem *pcs_misc = qphy->pcs_misc;
 	void __iomem *status;
 	unsigned int mask, val, ready;
 	int ret;
 
-	qmp_pcie_serdes_init(qphy);
+	qmp_pcie_serdes_init(qphy, &cfg->common);
+	qmp_pcie_serdes_init(qphy, cfg->extra);
 
 	ret = clk_prepare_enable(qphy->pipe_clk);
 	if (ret) {
@@ -1974,31 +2010,11 @@ static int qmp_pcie_power_on(struct phy *phy)
 	}
 
 	/* Tx, Rx, and PCS configurations */
-	qmp_pcie_configure_lane(tx, cfg->regs, cfg->common.tx_tbl, cfg->common.tx_tbl_num, 1);
-	qmp_pcie_configure_lane(tx, cfg->regs, cfg->extra->tx_tbl, cfg->extra->tx_tbl_num, 1);
+	qmp_pcie_lanes_init(qphy, &cfg->common);
+	qmp_pcie_lanes_init(qphy, cfg->extra);
 
-	if (cfg->lanes >= 2) {
-		qmp_pcie_configure_lane(qphy->tx2, cfg->regs, cfg->common.tx_tbl,
-					cfg->common.tx_tbl_num, 2);
-		qmp_pcie_configure_lane(qphy->tx2, cfg->regs, cfg->extra->tx_tbl,
-					cfg->extra->tx_tbl_num, 2);
-	}
-
-	qmp_pcie_configure_lane(rx, cfg->regs, cfg->common.rx_tbl, cfg->common.rx_tbl_num, 1);
-	qmp_pcie_configure_lane(rx, cfg->regs, cfg->extra->rx_tbl, cfg->extra->rx_tbl_num, 1);
-
-	if (cfg->lanes >= 2) {
-		qmp_pcie_configure_lane(qphy->rx2, cfg->regs, cfg->common.rx_tbl,
-					cfg->common.rx_tbl_num, 2);
-		qmp_pcie_configure_lane(qphy->rx2, cfg->regs, cfg->extra->rx_tbl,
-					cfg->extra->rx_tbl_num, 2);
-	}
-
-	qmp_pcie_configure(pcs, cfg->regs, cfg->common.pcs_tbl, cfg->common.pcs_tbl_num);
-	qmp_pcie_configure(pcs, cfg->regs, cfg->extra->pcs_tbl, cfg->extra->pcs_tbl_num);
-
-	qmp_pcie_configure(pcs_misc, cfg->regs, cfg->common.pcs_misc_tbl, cfg->common.pcs_misc_tbl_num);
-	qmp_pcie_configure(pcs_misc, cfg->regs, cfg->extra->pcs_misc_tbl, cfg->extra->pcs_misc_tbl_num);
+	qmp_pcie_pcs_init(qphy, &cfg->common);
+	qmp_pcie_pcs_init(qphy, cfg->extra);
 
 	/*
 	 * Pull out PHY from POWER DOWN state.
