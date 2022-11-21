@@ -9,14 +9,22 @@ title: Qualcomm Display DSI controller
 maintainers:
   - Krishna Manikandan <quic_mkrishn@quicinc.com>
 
-allOf:
-  - $ref: "../dsi-controller.yaml#"
-
 properties:
   compatible:
-    enum:
-      - qcom,mdss-dsi-ctrl
-      - qcom,dsi-ctrl-6g-qcm2290
+    items:
+      - enum:
+          - qcom,dsi-ctrl-6g-qcm2290
+          - qcom,mdss-dsi-ctrl-apq8064
+          - qcom,mdss-dsi-ctrl-msm8916
+          - qcom,mdss-dsi-ctrl-msm8974
+          - qcom,mdss-dsi-ctrl-msm8996
+          - qcom,mdss-dsi-ctrl-sc7180
+          - qcom,mdss-dsi-ctrl-sc7280
+          - qcom,mdss-dsi-ctrl-sdm630
+          - qcom,mdss-dsi-ctrl-sdm660
+          - qcom,mdss-dsi-ctrl-sdm845
+          - qcom,mdss-dsi-ctrl-sm8250
+      - const: qcom,mdss-dsi-ctrl
 
   reg:
     maxItems: 1
@@ -32,23 +40,23 @@ properties:
       - description: Display byte clock
       - description: Display byte interface clock
       - description: Display pixel clock
-      - description: Display escape clock
+      - description: Display core clock
       - description: Display AHB clock
       - description: Display AXI clock
+      - description: Core MultiMedia SubSystem clock
+      - description: MDP Core clock
+      - description: MNOC clock
+    minItems: 6
 
   clock-names:
-    items:
-      - const: byte
-      - const: byte_intf
-      - const: pixel
-      - const: core
-      - const: iface
-      - const: bus
+    minItems: 6
+    maxItems: 9
 
   phys:
     maxItems: 1
 
   phy-names:
+    deprecated: true
     const: dsi
 
   "#address-cells": true
@@ -123,6 +131,18 @@ properties:
       - port@0
       - port@1
 
+  vdd-supply:
+    description:
+      Phandle to vdd regulator device node
+
+  vddio-supply:
+    description:
+      Phandle to vdd-io regulator device node
+
+  vdda-supply:
+    description:
+      Phandle to vdda regulator device node
+
 required:
   - compatible
   - reg
@@ -131,12 +151,146 @@ required:
   - clocks
   - clock-names
   - phys
-  - phy-names
   - assigned-clocks
   - assigned-clock-parents
-  - power-domains
-  - operating-points-v2
   - ports
+  - vdd-supply
+  - vddio-supply
+  - vdda-supply
+
+allOf:
+  - $ref: "../dsi-controller.yaml#"
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,mdss-dsi-ctrl-apq8064
+    then:
+      properties:
+        clocks:
+          maxItems: 7
+        clock-names:
+          items:
+            - const: iface
+            - const: bus
+            - const: core_mmss
+            - const: src
+            - const: byte
+            - const: pixel
+            - const: core
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,mdss-dsi-ctrl-msm8916
+    then:
+      properties:
+        clocks:
+          maxItems: 6
+        clock-names:
+          items:
+            - const: mdp_core
+            - const: iface
+            - const: bus
+            - const: byte
+            - const: pixel
+            - const: core
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,mdss-dsi-ctrl-msm8974
+    then:
+      properties:
+        clocks:
+          maxItems: 3
+        clock-names:
+          items:
+            - const: iface
+            - const: bus
+            - const: vsync
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,mdss-dsi-ctrl-msm8996
+    then:
+      properties:
+        clocks:
+          maxItems: 7
+        clock-names:
+          items:
+            - const: mdp_core
+            - const: byte
+            - const: iface
+            - const: bus
+            - const: core_mmss
+            - const: pixel
+            - const: core
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,mdss-dsi-ctrl-sc7180
+              - qcom,mdss-dsi-ctrl-sc7280
+              - qcom,mdss-dsi-ctrl-sm8250
+    then:
+      properties:
+        clocks:
+          maxItems: 6
+        clock-names:
+          items:
+            - const: byte
+            - const: byte_intf
+            - const: pixel
+            - const: core
+            - const: iface
+            - const: bus
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,mdss-dsi-ctrl-sdm630
+              - qcom,mdss-dsi-ctrl-sdm660
+    then:
+      properties:
+        clocks:
+          maxItems: 9
+        clock-names:
+          items:
+            - const: mdp_core
+            - const: byte
+            - const: byte_intf
+            - const: mnoc
+            - const: iface
+            - const: bus
+            - const: core_mmss
+            - const: pixel
+            - const: core
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - qcom,mdss-dsi-ctrl-sdm845
+    then:
+      properties:
+        clocks:
+          maxItems: 6
+        clock-names:
+          items:
+            - const: byte
+            - const: byte_intf
+            - const: pixel
+            - const: core
+            - const: iface
+            - const: bus
 
 additionalProperties: false
 
@@ -148,7 +302,7 @@ examples:
      #include <dt-bindings/power/qcom-rpmpd.h>
 
      dsi@ae94000 {
-           compatible = "qcom,mdss-dsi-ctrl";
+           compatible = "qcom,mdss-dsi-ctrl-sc7180", "qcom,mdss-dsi-ctrl";
            reg = <0x0ae94000 0x400>;
            reg-names = "dsi_ctrl";
 
