@@ -310,6 +310,8 @@ static int msm_config_reg(struct msm_pinctrl *pctrl,
 	case PIN_CONFIG_BIAS_PULL_UP:
 		*bit = g->pull_bit;
 		*mask = 3;
+		if (g->i2c_pull_bit)
+			*mask |= BIT(g->i2c_pull_bit) >> *bit;
 		break;
 	case PIN_CONFIG_DRIVE_OPEN_DRAIN:
 		*bit = g->od_bit;
@@ -385,10 +387,14 @@ static int msm_config_group_get(struct pinctrl_dev *pctldev,
 		arg = 1;
 		break;
 	case PIN_CONFIG_BIAS_PULL_UP:
+		if (g->i2c_pull_bit)
+			arg &= BIT(g->i2c_pull_bit);
+
 		if (pctrl->soc->pull_no_keeper)
 			arg = arg == MSM_PULL_UP_NO_KEEPER;
 		else
 			arg = arg == MSM_PULL_UP;
+
 		if (!arg)
 			return -EINVAL;
 		break;
@@ -465,10 +471,15 @@ static int msm_config_group_set(struct pinctrl_dev *pctldev,
 			arg = MSM_KEEPER;
 			break;
 		case PIN_CONFIG_BIAS_PULL_UP:
+			unsigned value = arg;
+
 			if (pctrl->soc->pull_no_keeper)
 				arg = MSM_PULL_UP_NO_KEEPER;
 			else
 				arg = MSM_PULL_UP;
+			/* drop the value, set the corresponding bit */
+			if (g->i2c_pull_bit && value > 1)
+				arg |= BIT(g->i2c_pull_bit);
 			break;
 		case PIN_CONFIG_DRIVE_OPEN_DRAIN:
 			arg = 1;
