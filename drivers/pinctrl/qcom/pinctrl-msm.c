@@ -471,14 +471,14 @@ static int msm_config_group_set(struct pinctrl_dev *pctldev,
 			arg = MSM_KEEPER;
 			break;
 		case PIN_CONFIG_BIAS_PULL_UP:
-			unsigned value = arg;
-
 			if (pctrl->soc->pull_no_keeper)
 				arg = MSM_PULL_UP_NO_KEEPER;
 			else
 				arg = MSM_PULL_UP;
+
 			/* drop the value, set the corresponding bit */
-			if (g->i2c_pull_bit && value > 1)
+			if (g->i2c_pull_bit &&
+			    pinconf_to_config_argument(configs[i]) > 1)
 				arg |= BIT(g->i2c_pull_bit);
 			break;
 		case PIN_CONFIG_DRIVE_OPEN_DRAIN:
