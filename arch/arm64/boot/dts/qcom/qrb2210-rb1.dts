@@ -44,7 +44,140 @@
 	status = "okay";
 };
 
+&rpm_requests {
+	regulators {
+		compatible = "qcom,rpm-pm2250-regulators";
+
+		/* S2 - VDD_CX */
+
+		pm2250_s3: s3 {
+			regulator-min-microvolts = <400000>;
+			regulator-max-microvolts = <1662500>;
+		};
+
+		pm2250_s4: s4 {
+			regulator-min-microvolts = <1200000>;
+			regulator-max-microvolts = <2350000>;
+		};
+
+		/* L1 - VDD_MX */
+
+		pm2250_l2: l2 {
+			regulator-min-microvolts = <1060000>;
+			regulator-max-microvolts = <1300000>;
+		};
+
+		pm2250_l3: l3 {
+			regulator-min-microvolts = <570000>;
+			regulator-max-microvolts = <650000>;
+		};
+
+		pm2250_l4: l4 {
+			regulator-min-microvolts = <1648000>;
+			/* Originally 3.05V capped just below 3V for SDHCI */
+			regulator-max-microvolts = <2992000>;
+			regulator-allow-set-load;
+		};
+
+		pm2250_l5: l5 {
+			regulator-min-microvolts = <1100000>;
+			regulator-max-microvolts = <1312000>;
+		};
+
+		pm2250_l6: l6 {
+			regulator-min-microvolts = <488000>;
+			regulator-max-microvolts = <1000000>;
+		};
+
+		pm2250_l7: l7 {
+			regulator-min-microvolts = <400000>;
+			regulator-max-microvolts = <728000>;
+		};
+
+		/*
+		 * L8 - VDD_LPI_CX
+		 * L9 - VDD_LPI_MX
+		 */
+
+		pm2250_l10: l10 {
+			regulator-min-microvolts = <1150000>;
+			regulator-max-microvolts = <1380000>;
+		};
+
+		pm2250_l11: l11 {
+			regulator-min-microvolts = <950000>;
+			regulator-max-microvolts = <1150000>;
+		};
+
+		pm2250_l12: l12 {
+			regulator-min-microvolts = <488000>;
+			regulator-max-microvolts = <1000000>;
+		};
+
+		pm2250_l13: l13 {
+			regulator-min-microvolts = <1650000>;
+			regulator-max-microvolts = <1950000>;
+		};
+
+		pm2250_l14: l14 {
+			/* Originally 1.7V-1.95V but SDHCI expects 1.8V */
+			regulator-min-microvolts = <1800000>;
+			regulator-max-microvolts = <1800000>;
+			regulator-allow-set-load;
+			/* Broken hardware design, never turn it off! */
+			regulator-always-on;
+		};
+
+		pm2250_l15: l15 {
+			/* Originally 1.2V-2.0V but WCD et al expect 1.8V */
+			regulator-min-microvolts = <1800000>;
+			regulator-max-microvolts = <1800000>;
+		};
+
+		pm2250_l16: l16 {
+			regulator-min-microvolts = <1500000>;
+			regulator-max-microvolts = <1950000>;
+		};
+
+		pm2250_l17: l17 {
+			regulator-min-microvolts = <3000000>;
+			regulator-max-microvolts = <3600000>;
+		};
+
+		pm2250_l18: l18 {
+			regulator-min-microvolts = <1620000>;
+			regulator-max-microvolts = <3300000>;
+		};
+
+		pm2250_l19: l19 {
+			regulator-min-microvolts = <1620000>;
+			regulator-max-microvolts = <3300000>;
+		};
+
+		pm2250_l20: l20 {
+			/* Originally 2.4V-3.6V but SDHCI expects 2.856V */
+			regulator-min-microvolts = <2856000>;
+			regulator-max-microvolts = <2856000>;
+			regulator-allow-set-load;
+		};
+
+		pm2250_l21: l21 {
+			/* Originally min = 2.9V but SDHCI expects 2.96V */
+			regulator-min-microvolts = <2960000>;
+			regulator-max-microvolts = <3300000>;
+			regulator-allow-set-load;
+		};
+
+		pm2250_l22: l22 {
+			regulator-min-microvolts = <2850000>;
+			regulator-max-microvolts = <3400000>;
+		};
+	};
+};
+
 &sdhc_1 {
+	vmmc-supply = <&pm2250_l20>;
+	vqmmc-supply = <&pm2250_l14>;
 	pinctrl-0 = <&sdc1_state_on>;
 	pinctrl-1 = <&sdc1_state_off>;
 	pinctrl-names = "default", "sleep";
@@ -56,6 +189,8 @@
 };
 
 &sdhc_2 {
+	vmmc-supply = <&pm2250_l21>;
+	vqmmc-supply = <&pm2250_l4>;
 	cd-gpios = <&tlmm 88 GPIO_ACTIVE_LOW>;
 	pinctrl-0 = <&sdc2_state_on &sd_det_in_on>;
 	pinctrl-1 = <&sdc2_state_off &sd_det_in_off>;
@@ -99,6 +234,9 @@
 };
 
 &usb_hsphy {
+	vdd-supply = <&pm2250_l12>;
+	vdda-pll-supply = <&pm2250_l13>;
+	vdda-phy-dpdm-supply = <&pm2250_l21>;
 	status = "okay";
 };
 
