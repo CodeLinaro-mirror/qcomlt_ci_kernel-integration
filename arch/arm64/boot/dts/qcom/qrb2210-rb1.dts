@@ -44,6 +44,16 @@
 	status = "okay";
 };
 
+&remoteproc_adsp {
+	firmware-name = "qcom/qcm2290/adsp.mbn";
+	status = "okay";
+};
+
+&remoteproc_mpss {
+	firmware-name = "qcom/qcm2290/modem.mbn";
+	status = "okay";
+};
+
 &rpm_requests {
 	regulators {
 		compatible = "qcom,rpm-pm2250-regulators";
@@ -90,8 +100,9 @@
 		};
 
 		pm2250_l7: l7 {
-			regulator-min-microvolts = <400000>;
-			regulator-max-microvolts = <728000>;
+			/* Originally 0.4-0.728V but Wi-Fi expects 0.64V */
+			regulator-min-microvolts = <640000>;
+			regulator-max-microvolts = <640000>;
 		};
 
 		/*
@@ -169,8 +180,9 @@
 		};
 
 		pm2250_l22: l22 {
-			regulator-min-microvolts = <2850000>;
-			regulator-max-microvolts = <3400000>;
+			/* Originally 2.85-3.4V but Wi-Fi expects 3.0-3.312V */
+			regulator-min-microvolts = <3000000>;
+			regulator-max-microvolts = <3312000>;
 		};
 	};
 };
@@ -237,6 +249,14 @@
 	vdd-supply = <&pm2250_l12>;
 	vdda-pll-supply = <&pm2250_l13>;
 	vdda-phy-dpdm-supply = <&pm2250_l21>;
+	status = "okay";
+};
+
+&wifi {
+	vdd-0.8-cx-mx-supply = <&pm2250_l7>;
+	vdd-1.8-xo-supply = <&pm2250_l13>;
+	vdd-1.3-rfa-supply = <&pm2250_l10>;
+	vdd-3.3-ch0-supply = <&pm2250_l22>;
 	status = "okay";
 };
 
