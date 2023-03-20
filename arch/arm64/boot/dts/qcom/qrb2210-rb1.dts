@@ -191,25 +191,29 @@
 		/* S2 - VDD_CX */
 
 		pm2250_s3: s3 {
-			regulator-min-microvolts = <400000>;
-			regulator-max-microvolts = <1662500>;
+			/* Originally 0.4V-1.6625V but the power tree needs 1.35V */
+			regulator-min-microvolts = <1350000>;
+			regulator-max-microvolts = <1350000>;
 		};
 
 		pm2250_s4: s4 {
-			regulator-min-microvolts = <1200000>;
-			regulator-max-microvolts = <2350000>;
+			/* Originally 1.2V-2.35V but the power tree needs 2.05V */
+			regulator-min-microvolts = <2050000>;
+			regulator-max-microvolts = <2050000>;
 		};
 
 		/* L1 - VDD_MX */
 
 		pm2250_l2: l2 {
-			regulator-min-microvolts = <1060000>;
-			regulator-max-microvolts = <1300000>;
+			/* Originally 1.06V-1.3V; 1.128V for LPDDR4, 1.225V for LPDDR */
+			regulator-min-microvolts = <1128000>;
+			regulator-max-microvolts = <1128000>;
 		};
 
 		pm2250_l3: l3 {
-			regulator-min-microvolts = <570000>;
-			regulator-max-microvolts = <650000>;
+			/* Originally 0.57-0.65V, fix @ 0.6V for DRAM */
+			regulator-min-microvolts = <600000>;
+			regulator-max-microvolts = <600000>;
 		};
 
 		pm2250_l4: l4 {
@@ -227,8 +231,9 @@
 		};
 
 		pm2250_l6: l6 {
-			regulator-min-microvolts = <488000>;
-			regulator-max-microvolts = <1000000>;
+			/* 0.488V-1V -> 0.928 (DRAM) */
+			regulator-min-microvolts = <928000>;
+			regulator-max-microvolts = <928000>;
 		};
 
 		pm2250_l7: l7 {
@@ -243,8 +248,9 @@
 		 */
 
 		pm2250_l10: l10 {
-			regulator-min-microvolts = <1150000>;
-			regulator-max-microvolts = <1380000>;
+			/* 1.15V-1.138V -> 1.3V (Wi-Fi) */
+			regulator-min-microvolts = <1300000>;
+			regulator-max-microvolts = <1300000>;
 		};
 
 		pm2250_l11: l11 {
@@ -277,6 +283,7 @@
 			regulator-max-microvolts = <1800000>;
 		};
 
+		/* N/C? */
 		pm2250_l16: l16 {
 			regulator-min-microvolts = <1500000>;
 			regulator-max-microvolts = <1950000>;
