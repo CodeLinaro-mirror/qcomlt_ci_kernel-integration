@@ -667,14 +667,9 @@ static irqreturn_t qcom_swrm_irq_handler(int irq, void *dev_id)
 			case SWRM_INTERRUPT_STATUS_CHANGE_ENUM_SLAVE_STATUS:
 				dev_dbg_ratelimited(ctrl->dev, "SWR new slave attached\n");
 				ctrl->reg_read(ctrl, SWRM_MCP_SLV_STATUS, &slave_status);
-				if (ctrl->slave_status == slave_status) {
-					dev_dbg(ctrl->dev, "Slave status not changed %x\n",
-						slave_status);
-				} else {
-					qcom_swrm_get_device_status(ctrl);
-					qcom_swrm_enumerate(&ctrl->bus);
-					sdw_handle_slave_status(&ctrl->bus, ctrl->status);
-				}
+				qcom_swrm_get_device_status(ctrl);
+				qcom_swrm_enumerate(&ctrl->bus);
+				sdw_handle_slave_status(&ctrl->bus, ctrl->status);
 				break;
 			case SWRM_INTERRUPT_STATUS_MASTER_CLASH_DET:
 				dev_err_ratelimited(ctrl->dev,
