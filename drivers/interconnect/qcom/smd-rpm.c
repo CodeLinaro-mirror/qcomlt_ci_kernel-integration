@@ -59,6 +59,9 @@ int qcom_icc_rpm_set_bus_rate(const struct rpm_clk_resource *clk, u32 active_rat
 		sleep_rate = !!sleep_rate;
 	}
 
+	if (clk->resource_type == QCOM_SMD_RPM_MEM_CLK)
+		pr_err("act=%uMHz slp=%uMHz\n", active_rate/1000, sleep_rate/1000);
+
 	req.value = cpu_to_le32(active_rate);
 	ret = qcom_rpm_smd_write(icc_smd_rpm,
 				 QCOM_SMD_RPM_ACTIVE_STATE,
