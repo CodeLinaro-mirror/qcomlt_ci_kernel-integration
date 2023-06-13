@@ -311,10 +311,9 @@ static void qcom_icc_bus_aggregate(struct icc_provider *provider, u64 *agg_clk_r
 	list_for_each_entry(node, &provider->nodes, node_list) {
 		qn = node->data;
 		for (i = 0; i < QCOM_SMD_RPM_STATE_NUM; i++) {
+			agg_avg_rate = qn->sum_avg[i];
 			if (qn->channels)
-				agg_avg_rate = div_u64(qn->sum_avg[i], qn->channels);
-			else
-				agg_avg_rate = qn->sum_avg[i];
+				do_div(agg_avg_rate, qn->channels);
 
 			agg_rate = max_t(u64, agg_avg_rate, qn->max_peak[i]);
 			do_div(agg_rate, qn->buswidth);
