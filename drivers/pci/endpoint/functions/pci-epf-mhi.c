@@ -102,6 +102,11 @@ struct pci_epf_mhi {
 	int irq;
 };
 
+static size_t get_align_offset(struct pci_epc *epc, u64 addr)
+{
+	return addr % epc->mem->window.page_size;
+}
+
 static int __pci_epf_mhi_alloc_map(struct mhi_ep_cntrl *mhi_cntrl, u64 pci_addr,
 				 phys_addr_t *paddr, void __iomem **vaddr,
 				 size_t offset, size_t size)
@@ -134,7 +139,7 @@ static int pci_epf_mhi_alloc_map(struct mhi_ep_cntrl *mhi_cntrl, u64 pci_addr,
 {
 	struct pci_epf_mhi *epf_mhi = to_epf_mhi(mhi_cntrl);
 	struct pci_epc *epc = epf_mhi->epf->epc;
-	size_t offset = pci_addr & (epc->mem->window.page_size - 1);
+	size_t offset = get_align_offset(epc, pci_addr);
 
 	return __pci_epf_mhi_alloc_map(mhi_cntrl, pci_addr, paddr, vaddr,
 				      offset, size);
@@ -161,7 +166,7 @@ static void pci_epf_mhi_unmap_free(struct mhi_ep_cntrl *mhi_cntrl, u64 pci_addr,
 	struct pci_epf_mhi *epf_mhi = to_epf_mhi(mhi_cntrl);
 	struct pci_epf *epf = epf_mhi->epf;
 	struct pci_epc *epc = epf->epc;
-	size_t offset = pci_addr & (epc->mem->window.page_size - 1);
+	size_t offset = get_align_offset(epc, pci_addr);
 
 	__pci_epf_mhi_unmap_free(mhi_cntrl, pci_addr, paddr, vaddr, offset,
 				 size);
@@ -185,7 +190,8 @@ static int pci_epf_mhi_read_from_host(struct mhi_ep_cntrl *mhi_cntrl, u64 from,
 				      void *to, size_t size)
 {
 	struct pci_epf_mhi *epf_mhi = to_epf_mhi(mhi_cntrl);
-	size_t offset = from % SZ_4K;
+	struct pci_epc *epc = epf_mhi->epf->epc;
+	size_t offset = get_align_offset(epc, from);
 	void __iomem *tre_buf;
 	phys_addr_t tre_phys;
 	int ret;
@@ -213,7 +219,8 @@ static int pci_epf_mhi_write_to_host(struct mhi_ep_cntrl *mhi_cntrl,
 				     void *from, u64 to, size_t size)
 {
 	struct pci_epf_mhi *epf_mhi = to_epf_mhi(mhi_cntrl);
-	size_t offset = to % SZ_4K;
+	struct pci_epc *epc = epf_mhi->epf->epc;
+	size_t offset = get_align_offset(epc, to);
 	void __iomem *tre_buf;
 	phys_addr_t tre_phys;
 	int ret;
